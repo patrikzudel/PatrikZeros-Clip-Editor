@@ -1,0 +1,2954 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Single-file Jump Cut Video Editor</title>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --panel: #ffffff;
+      --ink: #1f2937;
+      --muted: #6b7280;
+      --line: #d9dee8;
+      --accent: #2563eb;
+      --accent2: #16a34a;
+      --danger: #ef4444;
+      --danger-soft: rgba(239, 68, 68, .26);
+      --wave: #1d9bf0;
+      --clip: #e9f8ef;
+      --clip-border: #70d69a;
+      --shadow: 0 16px 40px rgba(15, 23, 42, .10);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: radial-gradient(circle at top, #fff 0, var(--bg) 45%, #eef2f7 100%);
+    }
+
+    main { width: min(1500px, calc(100vw - 24px)); margin: 12px auto 24px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .viewer {
+      display: grid;
+      place-items: center;
+      background: #e9edf4;
+      padding: 14px;
+      position: relative;
+      min-height: 0;
+      overflow: visible;
+      transition: padding .08s ease;
+    }
+    .openVideoOverlay {
+      position: absolute;
+      inset: 14px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #eef2ff, #e0f2fe);
+      border: 1px dashed #93c5fd;
+      z-index: 8;
+    }
+    .openVideoOverlay.hidden { display: none !important; }
+    .openVideoButton {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+      box-shadow: 0 14px 32px rgba(37,99,235,.22);
+    }
+
+    video#video {
+      width: 100%;
+      max-height: 58vh;
+      background: #111827;
+      border-radius: 12px;
+      box-shadow: 0 10px 34px rgba(0,0,0,.18);
+      display: block;
+    }
+
+    .cropOverlay {
+      position: absolute;
+      pointer-events: auto;
+      cursor: move;
+      border: 2px solid rgba(37, 99, 235, .95);
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, .28);
+      display: none;
+      touch-action: none;
+    }
+    .cropOverlay::after {
+      content: "Drag crop";
+      position: absolute;
+      right: 28px;
+      top: 8px;
+      padding: 4px 7px;
+      border-radius: 999px;
+      background: rgba(37, 99, 235, .92);
+      color: white;
+      font-size: 11px;
+      font-weight: 800;
+      pointer-events: none;
+    }
+    .resizeHandle {
+      position: absolute;
+      right: -2px;
+      bottom: -2px;
+      width: 28px;
+      height: 28px;
+      cursor: nwse-resize;
+      touch-action: none;
+      background: linear-gradient(135deg, transparent 0 48%, rgba(37, 99, 235, .98) 49% 100%);
+      border-bottom-right-radius: 3px;
+    }
+    .resizeHandle::after {
+      content: "";
+      position: absolute;
+      right: 5px;
+      bottom: 5px;
+      width: 9px;
+      height: 9px;
+      border-right: 2px solid white;
+      border-bottom: 2px solid white;
+    }
+    .pipPreview {
+      position: absolute;
+      display: none;
+      overflow: hidden;
+      border: 2px solid rgba(22, 163, 74, .96);
+      border-radius: 10px;
+      background: rgba(22, 163, 74, .12);
+      box-shadow: 0 12px 28px rgba(0,0,0,.22);
+      pointer-events: auto;
+      cursor: move;
+      touch-action: none;
+      z-index: 4;
+    }
+    .pipPreview::after {
+      content: "PIP source · drag";
+      position: absolute;
+      left: 7px;
+      top: 7px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: rgba(22, 163, 74, .94);
+      color: white;
+      font-size: 11px;
+      font-weight: 900;
+      pointer-events: none;
+      z-index: 2;
+    }
+    .pipPreview video {
+      position: absolute;
+      max-width: none;
+      max-height: none;
+      width: auto;
+      height: auto;
+      border-radius: 0;
+      box-shadow: none;
+      pointer-events: none;
+    }
+
+    .controls {
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      border-top: 1px solid var(--line);
+      background: #fff;
+      flex-wrap: wrap;
+    }
+
+    button, .fileButton {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-weight: 650;
+      cursor: pointer;
+      color: var(--ink);
+      transition: transform .12s, border-color .12s, background .12s;
+      user-select: none;
+    }
+
+    button:hover, .fileButton:hover { transform: translateY(-1px); border-color: #a7b0c0; }
+    button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+    button.green { background: var(--accent2); color: white; border-color: var(--accent2); }
+    button.danger { color: #991b1b; border-color: #fecaca; background: #fff7f7; }
+    button:disabled { opacity: .46; cursor: not-allowed; transform: none; }
+    input[type=file] { display: none; }
+    .renderActions {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px dashed #bfdbfe;
+    }
+    .renderActions button, .renderActions .fileButton {
+      width: 100%;
+      text-align: center;
+      justify-content: center;
+      display: block;
+    }
+    .hidden { display: none !important; }
+
+    aside { padding: 14px; }
+    aside h2 { margin: 0 0 12px; font-size: 17px; }
+    .step {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      margin-bottom: 10px;
+      background: #fbfcff;
+    }
+    .step.active { border-color: #93c5fd; background: #eff6ff; }
+    .step.done { border-color: #bbf7d0; background: #f0fdf4; }
+    .stepTitle { display: flex; align-items: center; justify-content: space-between; font-weight: 800; }
+    label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+    input[type=range], input[type=number], select { width: 100%; }
+    input[type=number], select {
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      font: inherit;
+      background: white;
+    }
+    #bitrateEstimate {
+      margin-top: 6px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+    }
+
+    .timelineCard { margin-top: 0; padding: 12px; }
+    .inlineTimeline {
+      border-top: 1px solid var(--line);
+      background: #fff;
+    }
+    .timelineTop {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 0 4px 10px;
+      flex-wrap: wrap;
+    }
+    .timelineTop strong { font-size: 14px; }
+    .timelineTop span { color: var(--muted); font-size: 13px; }
+
+    .timelineWrap {
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    canvas#waveCanvas {
+      display: block;
+      width: 100%;
+      height: 138px;
+      min-width: 720px;
+      background: linear-gradient(#fff, #f8fafc);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      cursor: crosshair;
+    }
+
+    .clipStrip {
+      min-width: 820px;
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      padding: 2px 0;
+      min-height: 44px;
+    }
+    .clip {
+      border: 1px solid var(--clip-border);
+      background: var(--clip);
+      border-radius: 10px;
+      padding: 6px 8px;
+      min-width: 150px;
+      cursor: grab;
+      font-size: 12px;
+      color: #166534;
+      display: grid;
+      grid-template-columns: auto 1fr auto auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .clip.selected { outline: 3px solid rgba(37, 99, 235, .24); border-color: var(--accent); }
+    .clip.dragging { opacity: .45; }
+    .clipInfo { min-width: 0; }
+    .clip button {
+      padding: 0 8px;
+      font-size: 12px;
+      line-height: 1;
+      min-width: 34px;
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .clip .mergeBtn {
+      color: #1f2937;
+      border-color: #bfdbfe;
+      background: #eff6ff;
+      font-weight: 900;
+      font-size: 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: -0.06em;
+      min-width: 44px;
+    }
+    .clip .mergeBtn:disabled {
+      opacity: .28;
+      cursor: not-allowed;
+      background: #f8fafc;
+    }
+    .clip .deleteClipBtn {
+      color: #991b1b;
+      border-color: #fecaca;
+      background: #fff7f7;
+      font-size: 11px;
+    }
+
+    .renderProgressPanel {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      font-size: 13px;
+    }
+    .renderProgressPanel.hidden { display: none !important; }
+    .progressRow {
+      display: grid;
+      grid-template-columns: 86px 1fr 42px;
+      align-items: center;
+      gap: 8px;
+      margin: 8px 0;
+      color: var(--muted);
+    }
+    .progressTrack {
+      height: 10px;
+      border-radius: 999px;
+      background: #e5e7eb;
+      overflow: hidden;
+      border: 1px solid #d1d5db;
+    }
+    .progressFill {
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      background: var(--accent);
+      transition: width .16s linear;
+    }
+    .progressFill.render {
+      background: var(--accent2);
+    }
+    .renderLog {
+      margin-top: 8px;
+      max-height: 120px;
+      overflow: auto;
+      white-space: pre-wrap;
+      color: #475569;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.35;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 8px;
+    }
+
+    .status, textarea {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .status {
+      white-space: pre-wrap;
+      max-height: 160px;
+      overflow: auto;
+    }
+    textarea {
+      width: 100%;
+      min-height: 180px;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #111827;
+    }
+
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .ratioButtons {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 10px 0 4px;
+    }
+    .ratioButtons button {
+      padding: 7px 10px;
+      font-size: 12px;
+      background: #f8fafc;
+    }
+    .ratioButtons button.active, #pipToggle.active, #cropBoundsToggle.active, #advancedCropToggle.active {
+      background: #16a34a;
+      border-color: #16a34a;
+      color: white;
+    }
+    .pipPanel {
+      display: none;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px dashed #bfdbfe;
+    }
+    .pipPanel.open { display: block; }
+    .advancedCropPanel { display: none; }
+    .advancedCropPanel.open { display: block; }
+    .renderPreviewCard {
+      background: #f8fbff;
+      border-color: #bfdbfe;
+    }
+    .renderPreviewCard .stepTitle {
+      margin-bottom: 8px;
+    }
+    #renderPreviewStatus {
+      color: #2563eb;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .pipPlacementStage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      margin: 8px 0 6px;
+      border-radius: 12px;
+      border: 1px solid #bfdbfe;
+      background:
+        linear-gradient(90deg, rgba(255,255,255,.12) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(255,255,255,.12) 1px, transparent 1px),
+        #0f172a;
+      background-size: 33.333% 33.333%, 33.333% 33.333%, 100% 100%;
+      overflow: hidden;
+      touch-action: none;
+    }
+    .pipPlacementGrid {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      box-shadow: inset 0 0 0 2px rgba(37,99,235,.24);
+      z-index: 3;
+    }
+    .pipPlacementMain {
+      position: absolute;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.42);
+      background: #020617;
+      color: rgba(255,255,255,.8);
+      pointer-events: none;
+      z-index: 1;
+    }
+    .pipPlacementMain video,
+    .pipPlacementBox video {
+      position: absolute;
+      max-width: none;
+      max-height: none;
+      width: auto;
+      height: auto;
+      border-radius: 0;
+      box-shadow: none;
+      pointer-events: none;
+    }
+    .pipPlacementBox {
+      position: absolute;
+      display: block;
+      overflow: hidden;
+      min-width: 28px;
+      min-height: 20px;
+      border: 2px solid rgba(22, 163, 74, .98);
+      background: #000;
+      color: #166534;
+      font-size: 11px;
+      font-weight: 900;
+      border-radius: 8px;
+      cursor: move;
+      user-select: none;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, .16);
+      touch-action: none;
+      z-index: 4;
+    }
+    .pipPlacementLabel {
+      position: absolute;
+      left: 7px;
+      top: 7px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: rgba(22, 163, 74, .94);
+      color: white;
+      font-size: 10px;
+      font-weight: 900;
+      z-index: 7;
+      pointer-events: none;
+    }
+
+    .pipSourceResizeHandle, .pipPlacementResizeHandle {
+      position: absolute;
+      right: -2px;
+      bottom: -2px;
+      width: 24px;
+      height: 24px;
+      cursor: nwse-resize;
+      touch-action: none;
+      background: linear-gradient(135deg, transparent 0 48%, rgba(22, 163, 74, .98) 49% 100%);
+      border-bottom-right-radius: 6px;
+      z-index: 8;
+    }
+    .pipSourceResizeHandle::after, .pipPlacementResizeHandle::after {
+      content: "";
+      position: absolute;
+      right: 5px;
+      bottom: 5px;
+      width: 8px;
+      height: 8px;
+      border-right: 2px solid white;
+      border-bottom: 2px solid white;
+    }
+    .placementButtons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      margin: 8px 0 4px;
+    }
+    .placementButtons button {
+      border-radius: 10px;
+      padding: 7px 8px;
+      font-size: 12px;
+      background: #fff;
+    }
+
+    .small { font-size: 12px; color: var(--muted); line-height: 1.45; }
+
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+      video#video { max-height: 48vh; }
+    }
+  </style>
+</head>
+<body>
+
+  <main>
+    <div class="grid">
+      <section class="card">
+        <div class="viewer" id="viewer">
+          <div id="openVideoOverlay" class="openVideoOverlay">
+            <label class="fileButton openVideoButton">Open video <input id="fileInput" type="file" accept="video/*,audio/*" /></label>
+          </div>
+          <video id="video" playsinline></video>
+          <div class="pipPreview" id="pipPreview"><video id="pipVideo" muted playsinline></video><div class="pipSourceResizeHandle" id="pipSourceResizeHandle" title="Resize PIP source"></div></div>
+          <div class="cropOverlay" id="cropOverlay"><div class="resizeHandle" id="cropResizeHandle" title="Resize crop"></div></div>
+        </div>
+        <div class="controls">
+          <button id="playBtn" class="primary">Play timeline</button>
+          <button id="pauseBtn">Pause</button>
+          <button id="splitBtn" title="Shortcut: S">Split at cursor (S)</button>
+          <button id="newSessionBtn" class="danger" title="Reset everything and unload the current video.">New Session</button>
+        </div>
+
+        <section class="timelineCard inlineTimeline">
+          <div class="timelineTop">
+            <strong id="timelineTitle">Timeline</strong>
+            <span id="timeReadout">00:00 / 00:00</span>
+          </div>
+          <div class="timelineWrap">
+            <canvas id="waveCanvas" width="1400" height="150"></canvas>
+            <div class="clipStrip" id="clipStrip"></div>
+          </div>
+        </section>
+      </section>
+
+      <aside class="card">
+        <h2>Workflow</h2>
+        <div class="step renderPreviewCard" id="renderPreviewCard">
+<div class="stepTitle">Render Preview <span id="renderPreviewStatus">live</span></div>
+            <div class="pipPlacementStage" id="pipPlacementStage" title="Drag the green box to position PIP in the final render frame">
+              <div class="pipPlacementMain" id="pipPlacementMain"><video id="pipPlacementMainVideo" muted playsinline></video></div>
+              <div class="pipPlacementGrid"></div>
+              <div class="pipPlacementBox" id="pipPlacementBox"><video id="pipPlacementPipVideo" muted playsinline></video><span class="pipPlacementLabel">PIP placement</span><div class="pipPlacementResizeHandle" id="pipPlacementResizeHandle" title="Resize PIP placement"></div></div>
+            </div>
+            <p class="small">Preview the final frame.</p>
+        </div>
+
+        <div class="step active" id="step1">
+          <div class="stepTitle">1. Detect and remove silence <span id="silenceStats">waiting</span></div>
+          <label>Silence threshold dB: <strong id="thresholdVal">-38</strong></label>
+          <input id="threshold" title="Audio below this level is treated as silence." type="range" min="-65" max="-18" value="-38" />
+          <label>Minimum silence duration seconds</label>
+          <input id="minSilence" title="Only silence longer than this is removed." type="number" min="0.05" max="5" step="0.05" value="0.25" />
+          <label>Padding around speech seconds</label>
+          <input id="padding" title="Keep this much audio around speech before and after cuts." type="number" min="0" max="2" step="0.02" value="0.06" />
+          <button id="detectBtn" class="primary" style="width:100%; margin-top:12px;" title="Scan the audio and mark silent sections red.">Analyze silence</button>
+          <button id="applySilenceBtn" class="green" style="width:100%; margin-top:8px;" title="Remove marked silence and turn the result into one editable clip." disabled>Apply jump cuts as one clip</button>
+        </div>
+
+        <div class="step" id="step2">
+          <div class="stepTitle">2. Manual split, reorder, crop <span id="clipStats">0 clips</span></div>
+          <p class="small"><b>S</b> splits. <b>Space</b> plays/pauses. Drag clips to reorder.</p>
+          <div class="ratioButtons">
+            <button id="ratio169" type="button" title="Set the selected clip crop to 16:9.">16:9</button>
+            <button id="ratio43" type="button" title="Set the selected clip crop to 4:3.">4:3</button>
+            <button id="ratio916" type="button" title="Set the selected clip crop to 9:16 vertical.">9:16</button>
+            <button id="cropBoundsToggle" type="button" title="Allows the crop to leave the source; missing areas render black.">Allow outside of bounds</button>
+            <button id="advancedCropToggle" type="button" title="Show precise crop sliders for the selected clip.">Advanced crop</button>
+            <button id="pipToggle" type="button" title="Enable or disable Picture-in-Picture for the selected clip.">PIP mode</button>
+          </div>
+          <div id="mainAdvancedCrop" class="advancedCropPanel">
+            <div class="row">
+              <div><label>Crop X %</label><input id="cropX" title="Move the main crop left or right." type="range" min="-100" max="100" value="0"></div>
+              <div><label>Crop Y %</label><input id="cropY" title="Move the main crop up or down." type="range" min="-100" max="100" value="0"></div>
+              <div><label>Crop W %</label><input id="cropW" title="Adjust the main crop width." type="range" min="10" max="300" value="100"></div>
+              <div><label>Crop H %</label><input id="cropH" title="Adjust the main crop height." type="range" min="10" max="300" value="100"></div>
+            </div>
+          </div>
+          <div id="pipPanel" class="pipPanel">
+            <div class="stepTitle">Picture in Picture <span id="pipStatus">off</span></div>
+                        <div class="placementButtons">
+              <button id="pipCenterH" type="button" title="Center the PIP layer horizontally inside the main crop.">Center horizontally</button>
+              <button id="pipCenterV" type="button" title="Center the PIP layer vertically inside the main crop.">Center vertically</button>
+              <button id="pipFitW" type="button" title="Resize the PIP layer to fit the main crop width.">Fit to width</button>
+              <button id="pipFitH" type="button" title="Resize the PIP layer to fit the main crop height.">Fit to height</button>
+            </div>
+            <label>PIP Source crop preset</label>
+            <div class="ratioButtons">
+              <button id="pipCrop169" type="button" title="Set the PIP source crop to 16:9.">16:9</button>
+              <button id="pipCrop43" type="button" title="Set the PIP source crop to 4:3.">4:3</button>
+              <button id="pipCrop916" type="button" title="Set the PIP source crop to 9:16.">9:16</button>
+            </div>
+            <div id="pipAdvancedCrop" class="advancedCropPanel">
+              <div class="row">
+                <div><label>Source X %</label><input id="pipCropX" title="Move the PIP source crop left or right." type="range" min="0" max="90" value="25"></div>
+                <div><label>Source Y %</label><input id="pipCropY" title="Move the PIP source crop up or down." type="range" min="0" max="90" value="10"></div>
+                <div><label>Source W %</label><input id="pipCropW" title="Adjust the PIP source crop width." type="range" min="10" max="100" value="50"></div>
+                <div><label>Source H %</label><input id="pipCropH" title="Adjust the PIP source crop height." type="range" min="10" max="100" value="50"></div>
+                <div><label>Placement X %</label><input id="pipX" title="Move the PIP layer horizontally in the render." type="range" min="0" max="90" value="62"></div>
+                <div><label>Placement Y %</label><input id="pipY" title="Move the PIP layer vertically in the render." type="range" min="0" max="90" value="56"></div>
+                <div><label>Placement W %</label><input id="pipW" title="Adjust the PIP layer size in the render." type="range" min="10" max="80" value="32"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step" id="step3">
+          <div class="stepTitle">3. Render settings <span id="renderStats">idle</span></div>
+          <p class="small">Set final size, speed preset, and either CRF quality or manual bitrate with estimated file size.</p>
+          <div class="row">
+            <div><label>Render width</label><input id="renderW" title="Final output width in pixels." type="number" min="160" step="2" value="1920"></div>
+            <div><label>Render height</label><input id="renderH" title="Final output height in pixels." type="number" min="160" step="2" value="1080"></div>
+          </div>
+          <div class="ratioButtons">
+            <button id="res1080" type="button" title="Set render resolution to 1920×1080.">1920×1080</button>
+            <button id="res720" type="button" title="Set render resolution to 1280×720.">1280×720</button>
+            <button id="resVertical" type="button" title="Set render resolution to vertical 1080×1920.">1080×1920</button>
+          </div>
+          <label>Quality / Speed</label>
+          <select id="x264Preset" title="Controls render speed vs compression. Faster presets render quicker but create larger files.">
+            <option value="ultrafast">Ultrafast — fastest, largest file</option>
+            <option value="superfast">Superfast</option>
+            <option value="faster">Faster</option>
+            <option value="fast" selected>Fast — current default</option>
+            <option value="medium">Medium — slower, smaller file</option>
+            <option value="slow">Slow — slowest, smallest file</option>
+          </select>
+          <label>Bitrate / Quality mode</label>
+          <select id="rateMode" title="CRF targets visual quality. Manual bitrate targets an approximate file size.">
+            <option value="crf" selected>CRF quality</option>
+            <option value="bitrate">Manual constant bitrate</option>
+          </select>
+
+          <div id="crfPanel">
+            <label>CRF quality</label>
+            <select id="crfValue" title="Lower CRF means higher quality and larger files. Higher CRF means smaller draft files.">
+              <option value="18">CRF 18 — visually near-lossless / very large</option>
+              <option value="20">CRF 20 — high quality</option>
+              <option value="23" selected>CRF 23 — standard balanced</option>
+              <option value="26">CRF 26 — smaller file</option>
+              <option value="28">CRF 28 — low size / acceptable draft</option>
+              <option value="32">CRF 32 — very small draft</option>
+              <option value="36">CRF 36 — very low quality / strict limit draft</option>
+            </select>
+            <p class="small">CRF file size is not predictable exactly, but lower values are larger and higher values are smaller.</p>
+          </div>
+
+          <div id="bitratePanel" class="hidden">
+            <label>Video bitrate: <strong id="videoBitrateVal">4000 kbps</strong></label>
+            <input id="videoBitrate" type="range" min="300" max="20000" step="100" value="4000" title="Manual video bitrate. Higher means better quality and larger files." />
+            <p class="small" id="bitrateEstimate">Estimated output size: unknown until a video is loaded.</p>
+          </div>
+          <textarea id="commandBox" class="hidden" readonly></textarea>
+          <div id="renderProgressPanel" class="renderProgressPanel hidden">
+            <div class="stepTitle">Browser render <span id="renderPhaseText">idle</span></div>
+            <div class="progressRow">
+              <span>FFmpeg</span>
+              <div class="progressTrack"><div id="ffmpegLoadBar" class="progressFill"></div></div>
+              <span id="ffmpegLoadPct">0%</span>
+            </div>
+            <div class="progressRow">
+              <span>Render</span>
+              <div class="progressTrack"><div id="ffmpegRenderBar" class="progressFill render"></div></div>
+              <span id="ffmpegRenderPct">0%</span>
+            </div>
+            <div id="renderLog" class="renderLog">Waiting.</div>
+</div>
+          <div class="renderActions">
+            <button id="copyHeaderBtn" class="primary" disabled title="Generate and copy the desktop FFmpeg command.">Copy FFmpeg command</button>
+            <button id="renderBrowserBtn" class="green" disabled title="Render directly in this browser using multithreaded FFmpeg WebAssembly. Requires COOP/COEP headers.">Render in browser</button>
+            <a id="downloadRenderLink" class="fileButton hidden" download="edited-video.mp4">Download render</a>
+          </div>
+        </div>
+        <div class="status hidden" id="status">Open a video to begin.</div>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const fileInput = $('fileInput');
+    const openVideoOverlay = $('openVideoOverlay');
+    const copyHeaderBtn = $('copyHeaderBtn');
+    const renderBrowserBtn = $('renderBrowserBtn');
+    const downloadRenderLink = $('downloadRenderLink');
+    const renderProgressPanel = $('renderProgressPanel');
+    const ffmpegLoadBar = $('ffmpegLoadBar');
+    const ffmpegLoadPct = $('ffmpegLoadPct');
+    const ffmpegRenderBar = $('ffmpegRenderBar');
+    const ffmpegRenderPct = $('ffmpegRenderPct');
+    const renderPhaseText = $('renderPhaseText');
+    const renderLogBox = $('renderLog');
+    const video = $('video');
+    const pipPreview = $('pipPreview');
+    const pipVideo = $('pipVideo');
+    const pipSourceResizeHandle = $('pipSourceResizeHandle');
+    const pipPlacementStage = $('pipPlacementStage');
+    const pipPlacementMain = $('pipPlacementMain');
+    const pipPlacementMainVideo = $('pipPlacementMainVideo');
+    const pipPlacementBox = $('pipPlacementBox');
+    const pipPlacementPipVideo = $('pipPlacementPipVideo');
+    const pipPlacementResizeHandle = $('pipPlacementResizeHandle');
+    const viewer = $('viewer');
+    const cropOverlay = $('cropOverlay');
+    const cropResizeHandle = $('cropResizeHandle');
+    const canvas = $('waveCanvas');
+    const ctx = canvas.getContext('2d');
+    const clipStrip = $('clipStrip');
+    const statusBox = $('status');
+
+    const state = {
+      file: null,
+      fileName: 'input.mp4',
+      objectUrl: '',
+      duration: 0,
+      audioCtx: null,
+      peaks: [],
+      silent: [],
+      keep: [],
+      appliedSilence: false,
+      clips: [],
+      selectedClip: 0,
+      cursor: 0,
+      playingTimeline: false,
+      suppressNativeTimeUpdate: false,
+      previewRunId: 0,
+      activeTimelineItem: null,
+      nextClipNumber: 1,
+      pipEditMode: false,
+      allowOutOfBoundsCrop: false,
+      advancedCropOpen: false,
+    };
+
+    let browserFFmpeg = null;
+    let browserFFmpegLoaded = false;
+    const MIN_RENDER_SEGMENT_SECONDS = 0.08;
+
+    const fmt = (s) => {
+      if (!Number.isFinite(s)) return '00:00';
+      const m = Math.floor(s / 60);
+      const sec = Math.floor(s % 60);
+      const ms = Math.floor((s % 1) * 10);
+      return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}.${ms}`;
+    };
+    const sec = (s) => Number(Math.max(0, s).toFixed(3));
+    const log = (msg) => { statusBox.textContent = msg; };
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      resetAll(false);
+      state.file = file;
+      openVideoOverlay.classList.add('hidden');
+      downloadRenderLink.classList.add('hidden');
+      downloadRenderLink.removeAttribute('href');
+      renderProgressPanel.classList.add('hidden');
+      state.fileName = file.name || 'input.mp4';
+      state.objectUrl = URL.createObjectURL(file);
+      video.src = state.objectUrl;
+      pipVideo.src = state.objectUrl;
+      pipPlacementMainVideo.src = state.objectUrl;
+      pipPlacementPipVideo.src = state.objectUrl;
+      video.load();
+      pipVideo.load();
+      pipPlacementMainVideo.load();
+      pipPlacementPipVideo.load();
+      await new Promise(resolve => video.onloadedmetadata = resolve);
+      state.duration = video.duration || 0;
+      log('Decoding audio and drawing waveform...');
+      await decodeWaveform(file);
+      state.keep = [{ start: 0, end: state.duration }];
+      state.clips = [{ id: crypto.randomUUID(), label: allocateClipLabel(), segments: [{ start: 0, end: state.duration }], crop: defaultCrop(), pip: defaultPip() }];
+      state.cursor = 0;
+      syncPreviewToTimeline();
+      draw();
+      renderClips();
+      updateUi();
+      log('Video loaded. Click “Analyze silence” to mark silent sections red.');
+    });
+
+    async function decodeWaveform(file) {
+      state.audioCtx = state.audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const buf = await file.arrayBuffer();
+      const audio = await state.audioCtx.decodeAudioData(buf.slice(0));
+      const ch = audio.getChannelData(0);
+      const bins = 1600;
+      const samplesPerBin = Math.max(1, Math.floor(ch.length / bins));
+      const peaks = [];
+      for (let i = 0; i < bins; i++) {
+        let sum = 0, max = 0;
+        const start = i * samplesPerBin;
+        const end = Math.min(ch.length, start + samplesPerBin);
+        for (let j = start; j < end; j++) {
+          const a = Math.abs(ch[j]);
+          sum += a * a;
+          if (a > max) max = a;
+        }
+        const rms = Math.sqrt(sum / Math.max(1, end - start));
+        peaks.push({ rms, max, t0: i / bins * audio.duration, t1: (i + 1) / bins * audio.duration });
+      }
+      state.peaks = peaks;
+    }
+
+    function detectSilence() {
+      if (!state.file || !state.peaks.length) return;
+      const thresholdDb = Number($('threshold').value);
+      const threshold = Math.pow(10, thresholdDb / 20);
+      const minDur = Number($('minSilence').value);
+      const pad = Number($('padding').value);
+
+      const raw = [];
+      let runStart = null;
+      for (const p of state.peaks) {
+        const isSilent = p.rms < threshold;
+        if (isSilent && runStart === null) runStart = p.t0;
+        if (!isSilent && runStart !== null) {
+          if (p.t0 - runStart >= minDur) raw.push({ start: runStart, end: p.t0 });
+          runStart = null;
+        }
+      }
+      if (runStart !== null && state.duration - runStart >= minDur) raw.push({ start: runStart, end: state.duration });
+
+      state.silent = mergeRanges(raw.map(r => ({
+        start: clamp(r.start + pad, 0, state.duration),
+        end: clamp(r.end - pad, 0, state.duration)
+      })).filter(r => r.end > r.start));
+
+      state.keep = invertRanges(state.silent, state.duration);
+      $('applySilenceBtn').disabled = state.keep.length === 0;
+      $('silenceStats').textContent = `${state.silent.length} red cuts`;
+      draw();
+      log(`Detected ${state.silent.length} silent sections. Red areas are skipped in preview and deleted before Step 2.`);
+    }
+
+    function applySilenceAsOneClip() {
+      if (!state.keep.length) return;
+      state.appliedSilence = true;
+      state.clips = [{ id: crypto.randomUUID(), label: allocateClipLabel(), segments: structuredClone(state.keep), crop: defaultCrop(), pip: defaultPip() }];
+      state.selectedClip = 0;
+      state.cursor = 0;
+      $('step1').classList.remove('active'); $('step1').classList.add('done'); $('step1').classList.add('hidden');
+      $('step2').classList.add('active');
+      syncPreviewToTimeline();
+      draw();
+      renderClips();
+      updateUi();
+      generateCommand(false);
+      log('Step 2 ready. Silence was removed and edits update the preview.');
+    }
+
+    function mergeRanges(ranges) {
+      const sorted = ranges.filter(r => r.end > r.start).sort((a,b) => a.start - b.start);
+      const out = [];
+      for (const r of sorted) {
+        const last = out[out.length - 1];
+        if (!last || r.start > last.end) out.push({ ...r });
+        else last.end = Math.max(last.end, r.end);
+      }
+      return out;
+    }
+
+    function invertRanges(ranges, duration) {
+      const out = [];
+      let at = 0;
+      for (const r of mergeRanges(ranges)) {
+        if (r.start > at) out.push({ start: at, end: r.start });
+        at = Math.max(at, r.end);
+      }
+      if (at < duration) out.push({ start: at, end: duration });
+      return out.filter(r => r.end - r.start > 0.035);
+    }
+
+    function defaultCrop() { return { x: 0, y: 0, w: 100, h: 100 }; }
+
+    function sourceRatioCrop(ratioW, ratioH) {
+      const targetAspect = ratioW / ratioH;
+      const sourceAspect = sourceAspectRatio();
+      let w = 100;
+      let h = 100;
+
+      if (sourceAspect > targetAspect) w = (targetAspect / sourceAspect) * 100;
+      else h = (sourceAspect / targetAspect) * 100;
+
+      return normalizeSourceCrop({ x: (100 - w) / 2, y: (100 - h) / 2, w, h });
+    }
+
+    function defaultPip() {
+      return {
+        enabled: false,
+        crop: sourceRatioCrop(16, 9),
+        frame: { x: 62, y: 56, w: 32 },
+      };
+    }
+    function ensurePip(clip) {
+      if (!clip.pip) clip.pip = defaultPip();
+      if (!clip.pip.crop) clip.pip.crop = defaultPip().crop;
+      if (!clip.pip.frame) clip.pip.frame = defaultPip().frame;
+      return clip.pip;
+    }
+    function allocateClipLabel() { return `Clip ${state.nextClipNumber++}`; }
+    function clipDuration(clip) { return clip.segments.reduce((s, r) => s + r.end - r.start, 0); }
+    function timelineDuration() { return state.clips.reduce((s, c) => s + clipDuration(c), 0); }
+    function clipDurationBefore(index) { return state.clips.slice(0, index).reduce((s, c) => s + clipDuration(c), 0); }
+
+    function flattenTimeline() {
+      const items = [];
+      let tl = 0;
+      state.clips.forEach((clip, clipIndex) => {
+        clip.segments.forEach((seg, segmentIndex) => {
+          const duration = seg.end - seg.start;
+          if (duration <= 0) return;
+          items.push({
+            clipIndex,
+            segmentIndex,
+            clip,
+            seg,
+            timelineStart: tl,
+            timelineEnd: tl + duration,
+          });
+          tl += duration;
+        });
+      });
+      return items;
+    }
+
+    function timelineToSource(t) {
+      const items = flattenTimeline();
+      if (!items.length) return { clipIndex: 0, sourceTime: 0, item: null };
+      const total = timelineDuration();
+      const tt = clamp(t, 0, Math.max(0, total - 0.0001));
+      const item = items.find(x => tt >= x.timelineStart && tt < x.timelineEnd) || items[items.length - 1];
+      const offset = clamp(tt - item.timelineStart, 0, item.timelineEnd - item.timelineStart);
+      return {
+        clipIndex: item.clipIndex,
+        sourceTime: item.seg.start + offset,
+        item,
+      };
+    }
+
+    function sourceToTimeline(sourceTime) {
+      let acc = 0;
+      for (const clip of state.clips) {
+        for (const seg of clip.segments) {
+          const d = seg.end - seg.start;
+          if (sourceTime >= seg.start && sourceTime <= seg.end) return acc + sourceTime - seg.start;
+          acc += d;
+        }
+      }
+      return clamp(acc, 0, timelineDuration());
+    }
+
+
+    function syncMirrorVideoTimes() {
+      const t = video.currentTime || 0;
+      for (const v of [pipVideo, pipPlacementMainVideo, pipPlacementPipVideo]) {
+        if (v && v.src && Math.abs((v.currentTime || 0) - t) > 0.08) {
+          try { v.currentTime = t; } catch {}
+        }
+      }
+    }
+
+    function pauseMirrorVideos() {
+      for (const v of [pipVideo, pipPlacementMainVideo, pipPlacementPipVideo]) {
+        if (v) v.pause();
+      }
+    }
+
+    async function playMirrorVideos() {
+      const clip = state.clips[state.selectedClip];
+      const pipEnabled = !!(clip && ensurePip(clip).enabled);
+      const mirrors = pipEnabled ? [pipVideo, pipPlacementMainVideo, pipPlacementPipVideo] : [pipPlacementMainVideo];
+      for (const v of mirrors) {
+        if (v && v.src) {
+          try { await v.play(); } catch {}
+        }
+      }
+    }
+
+    function placeVideoCropInBox(videoEl, boxW, boxH, crop, sourceAspect) {
+      if (!videoEl || !boxW || !boxH) return;
+      const cropAspect = Math.max(0.05, (crop.w * sourceAspect) / Math.max(0.001, crop.h));
+      let cropWpx = boxW;
+      let cropHpx = cropWpx / cropAspect;
+      if (cropHpx < boxH) {
+        cropHpx = boxH;
+        cropWpx = cropHpx * cropAspect;
+      }
+
+      const fullW = cropWpx * 100 / Math.max(0.001, crop.w);
+      const fullH = fullW / sourceAspect;
+      const left = -fullW * crop.x / 100 + (boxW - cropWpx) / 2;
+      const top = -fullH * crop.y / 100 + (boxH - cropHpx) / 2;
+
+      videoEl.style.width = `${fullW}px`;
+      videoEl.style.height = `${fullH}px`;
+      videoEl.style.left = `${left}px`;
+      videoEl.style.top = `${top}px`;
+    }
+
+
+    function syncPreviewToTimeline(keepPaused = true) {
+      const total = state.appliedSilence ? timelineDuration() : state.duration;
+      state.cursor = clamp(state.cursor, 0, total);
+
+      if (keepPaused) {
+        state.previewRunId++;
+        state.playingTimeline = false;
+        state.activeTimelineItem = null;
+        video.pause();
+        pauseMirrorVideos();
+      }
+
+      if (state.appliedSilence && !state.clips.length) {
+        updateCropOverlay();
+        updatePipPreview();
+        updateUi();
+        return;
+      }
+
+      const map = state.appliedSilence ? timelineToSource(state.cursor) : { sourceTime: state.cursor, clipIndex: 0, item: null };
+      if (state.appliedSilence) state.selectedClip = clamp(map.clipIndex, 0, Math.max(0, state.clips.length - 1));
+      state.activeTimelineItem = map.item;
+      state.suppressNativeTimeUpdate = true;
+      video.currentTime = clamp(map.sourceTime || 0, 0, state.duration || 0);
+      syncMirrorVideoTimes();
+      setTimeout(() => { state.suppressNativeTimeUpdate = false; }, 120);
+      updateCropOverlay();
+      updatePipPreview();
+      updateUi();
+    }
+
+    function afterTimelineEdit(message) {
+      const total = timelineDuration();
+      state.cursor = clamp(state.cursor, 0, total);
+      if (state.clips.length) state.selectedClip = clamp(state.selectedClip, 0, state.clips.length - 1);
+      syncPreviewToTimeline(true);
+      draw();
+      renderClips();
+      updateUi();
+      generateCommand(false);
+      updateBitrateEstimate();
+      log(message);
+    }
+
+    function splitAtCursor() {
+      if (!state.appliedSilence || !state.clips.length) {
+        log('Analyze and apply silence first. Step 2 starts with one jump-cut clip.');
+        return;
+      }
+      const t = clamp(state.cursor, 0, timelineDuration());
+      let acc = 0;
+      for (let ci = 0; ci < state.clips.length; ci++) {
+        const clip = state.clips[ci];
+        const dur = clipDuration(clip);
+        if (t <= acc + 0.02 || t >= acc + dur - 0.02) { acc += dur; continue; }
+        const left = [], right = [];
+        let localAcc = 0;
+        for (const seg of clip.segments) {
+          const sd = seg.end - seg.start;
+          const splitLocal = t - acc;
+          if (splitLocal <= localAcc) right.push({ ...seg });
+          else if (splitLocal >= localAcc + sd) left.push({ ...seg });
+          else {
+            const sourceSplit = seg.start + (splitLocal - localAcc);
+            left.push({ start: seg.start, end: sourceSplit });
+            right.push({ start: sourceSplit, end: seg.end });
+          }
+          localAcc += sd;
+        }
+        const newClips = [];
+        if (left.length) newClips.push({ id: crypto.randomUUID(), label: clip.label, segments: left, crop: structuredClone(clip.crop), pip: structuredClone(ensurePip(clip)) });
+        if (right.length) newClips.push({ id: crypto.randomUUID(), label: allocateClipLabel(), segments: right, crop: structuredClone(clip.crop), pip: structuredClone(ensurePip(clip)) });
+        state.clips.splice(ci, 1, ...newClips);
+        state.selectedClip = Math.min(ci + 1, state.clips.length - 1);
+        afterTimelineEdit(`Split at ${fmt(t)}. Preview is now positioned at the beginning of the new right-side clip.`);
+        return;
+      }
+      log('Place the cursor inside a clip, not exactly on a clip edge.');
+    }
+
+    function draw() {
+      const dpr = window.devicePixelRatio || 1;
+      const cssW = canvas.clientWidth || 1400;
+      const cssH = 138;
+      canvas.width = Math.floor(cssW * dpr);
+      canvas.height = Math.floor(cssH * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0,0,cssW,cssH);
+
+      const mid = 70, amp = 43;
+      ctx.fillStyle = '#f8fafc'; ctx.fillRect(0,0,cssW,cssH);
+      const total = state.appliedSilence ? Math.max(0.001, timelineDuration()) : Math.max(0.001, state.duration);
+      drawTicks(cssW, total);
+      if (!state.peaks.length) return;
+
+      if (!state.appliedSilence) {
+        for (const r of state.silent) rectRange(r.start, r.end, total, cssW, cssH, 'rgba(239,68,68,.28)');
+        drawWaveSource(0, state.duration, 0, cssW, mid, amp);
+      } else {
+        let xCursor = 0;
+        state.clips.forEach((clip, ci) => {
+          const cd = clipDuration(clip);
+          const w = cssW * cd / total;
+          ctx.fillStyle = ci === state.selectedClip ? 'rgba(37,99,235,.08)' : 'rgba(22,163,74,.08)';
+          ctx.fillRect(xCursor, 24, w, cssH - 38);
+          ctx.strokeStyle = ci === state.selectedClip ? '#2563eb' : '#86efac';
+          ctx.strokeRect(xCursor + .5, 24.5, Math.max(0, w - 1), cssH - 39);
+          let localX = xCursor;
+          for (const seg of clip.segments) {
+            const sw = cssW * (seg.end - seg.start) / total;
+            drawWaveSource(seg.start, seg.end, localX, sw, mid, amp);
+            localX += sw;
+          }
+          xCursor += w;
+        });
+      }
+
+      const cx = cssW * clamp(state.cursor, 0, total) / total;
+      ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, cssH); ctx.stroke();
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath(); ctx.arc(cx, 15, 6, 0, Math.PI * 2); ctx.fill();
+    }
+
+    function drawTicks(w, total) {
+      ctx.strokeStyle = '#d8dee9'; ctx.lineWidth = 1;
+      ctx.fillStyle = '#64748b'; ctx.font = '12px ui-sans-serif, system-ui';
+      const step = niceStep(total / 8);
+      for (let t = 0; t <= total + .001; t += step) {
+        const x = t / total * w;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 12); ctx.stroke();
+        if (t > 0) ctx.fillText(fmt(t).replace('.0',''), x + 4, 14);
+      }
+      ctx.strokeStyle = '#e5e7eb';
+      ctx.beginPath(); ctx.moveTo(0, 70); ctx.lineTo(w, 70); ctx.stroke();
+    }
+
+    function niceStep(raw) {
+      const choices = [1,2,5,10,15,30,60,120,300,600];
+      return choices.find(c => c >= raw) || 600;
+    }
+
+    function rectRange(start, end, total, w, h, color) {
+      const x = start / total * w;
+      const rw = (end - start) / total * w;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, 24, rw, h - 38);
+    }
+
+    function drawWaveSource(start, end, x, width, mid, amp) {
+      const visible = state.peaks.filter(p => p.t1 >= start && p.t0 <= end);
+      ctx.strokeStyle = '#1d9bf0';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (const p of visible) {
+        const t = (p.t0 - start) / Math.max(0.0001, end - start);
+        const px = x + t * width;
+        const a = Math.max(1, p.max * amp * 2.7);
+        ctx.moveTo(px, mid - a);
+        ctx.lineTo(px, mid + a);
+      }
+      ctx.stroke();
+    }
+
+    function renderClips() {
+      clipStrip.innerHTML = '';
+      const total = Math.max(0.001, timelineDuration());
+      state.clips.forEach((clip, idx) => {
+        const el = document.createElement('div');
+        el.className = 'clip' + (idx === state.selectedClip ? ' selected' : '');
+        el.draggable = true;
+        el.style.flexBasis = `${Math.max(120, clipDuration(clip) / total * 1000)}px`;
+        const pipTag = ensurePip(clip).enabled ? '<br><b>PIP on</b>' : '';
+        el.innerHTML = `
+          <button class="mergeBtn mergeLeft" title="Merge with left clip" ${idx === 0 ? 'disabled' : ''}>⇤&#8288;|</button>
+          <span class="clipInfo">${clip.label || `Clip ${idx + 1}`}<br><b>${fmt(clipDuration(clip))}</b>${pipTag}</span>
+          <button class="deleteClipBtn" title="Delete clip">×</button>
+          <button class="mergeBtn mergeRight" title="Merge with right clip" ${idx === state.clips.length - 1 ? 'disabled' : ''}>|&#8288;⇥</button>
+        `;
+
+        el.addEventListener('click', (e) => {
+          state.selectedClip = idx;
+          state.cursor = clipDurationBefore(idx);
+          syncPreviewToTimeline(true);
+          draw(); renderClips(); updateCropOverlay(); updatePipPreview(); generateCommand(false);
+          e.stopPropagation();
+        });
+
+        el.querySelector('.mergeLeft').addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (idx > 0) mergeClipWithNeighbor(idx, 'left');
+        });
+
+        el.querySelector('.mergeRight').addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (idx < state.clips.length - 1) mergeClipWithNeighbor(idx, 'right');
+        });
+
+        el.querySelector('.deleteClipBtn').addEventListener('click', (e) => {
+          e.stopPropagation(); deleteSelected(idx);
+        });
+
+        el.addEventListener('dragstart', e => {
+          el.classList.add('dragging');
+          e.dataTransfer.setData('text/plain', idx);
+        });
+        el.addEventListener('dragend', () => el.classList.remove('dragging'));
+        el.addEventListener('dragover', e => e.preventDefault());
+        el.addEventListener('drop', e => {
+          e.preventDefault();
+          const from = Number(e.dataTransfer.getData('text/plain'));
+          reorderClip(from, idx);
+        });
+        clipStrip.appendChild(el);
+      });
+      $('clipStats').textContent = `${state.clips.length} clip${state.clips.length === 1 ? '' : 's'}`;
+    }
+
+    function mergeClipWithNeighbor(index, direction) {
+      if (direction === 'left' && index <= 0) return;
+      if (direction === 'right' && index >= state.clips.length - 1) return;
+
+      const current = state.clips[index];
+      const neighborIndex = direction === 'left' ? index - 1 : index + 1;
+      const neighbor = state.clips[neighborIndex];
+
+      const merged = {
+        id: crypto.randomUUID(),
+        // Keep the identity/settings of the clip whose arrow was clicked.
+        label: current.label,
+        crop: structuredClone(current.crop),
+        pip: structuredClone(ensurePip(current)),
+        segments: direction === 'left'
+          ? [...structuredClone(neighbor.segments), ...structuredClone(current.segments)]
+          : [...structuredClone(current.segments), ...structuredClone(neighbor.segments)],
+      };
+
+      const insertAt = direction === 'left' ? neighborIndex : index;
+      state.clips.splice(insertAt, 2, merged);
+      state.selectedClip = insertAt;
+      state.cursor = clipDurationBefore(insertAt);
+      afterTimelineEdit(`Merged ${current.label} with its ${direction} neighbor. Settings kept from ${current.label}.`);
+    }
+
+    function reorderClip(from, to) {
+      if (from === to || from < 0 || to < 0) return;
+      const [moved] = state.clips.splice(from, 1);
+      state.clips.splice(to, 0, moved);
+      state.selectedClip = to;
+      state.cursor = clipDurationBefore(to);
+      afterTimelineEdit('Clips reordered. Preview is now positioned on the moved clip in the new timeline order.');
+    }
+
+    function deleteSelected(index = state.selectedClip) {
+      if (!state.clips.length) return;
+      const deletedStart = clipDurationBefore(index);
+      state.clips.splice(index, 1);
+      state.selectedClip = clamp(index, 0, Math.max(0, state.clips.length - 1));
+      state.cursor = clamp(deletedStart, 0, timelineDuration());
+      afterTimelineEdit(state.clips.length ? 'Clip deleted. Preview now shows the clip that fills that timeline position.' : 'All clips deleted.');
+    }
+
+    canvas.addEventListener('click', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const total = state.appliedSilence ? timelineDuration() : state.duration;
+      state.cursor = clamp(x / rect.width * total, 0, total);
+      syncPreviewToTimeline(true);
+      draw(); renderClips(); updateUi(); updateCropOverlay(); updatePipPreview();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      const tag = document.activeElement.tagName;
+      const isTyping = ['INPUT','TEXTAREA','SELECT'].includes(tag) || document.activeElement.isContentEditable;
+      if (isTyping) return;
+
+      if (e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        splitAtCursor();
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (state.playingTimeline && !video.paused) pauseTimeline();
+        else playTimeline();
+      }
+    });
+
+    video.addEventListener('timeupdate', () => {
+      if (state.suppressNativeTimeUpdate) return;
+
+      if (!state.appliedSilence) {
+        const inSilent = state.silent.find(r => video.currentTime >= r.start && video.currentTime < r.end);
+        if (inSilent) {
+          state.suppressNativeTimeUpdate = true;
+          video.currentTime = inSilent.end;
+          syncMirrorVideoTimes();
+          setTimeout(() => { state.suppressNativeTimeUpdate = false; }, 80);
+        }
+        state.cursor = clamp(video.currentTime, 0, state.duration || 0);
+        draw(); updateUi(); updatePipPreview();
+        return;
+      }
+
+      if (!state.playingTimeline) return;
+    });
+
+    $('playBtn').addEventListener('click', playTimeline);
+    $('pauseBtn').addEventListener('click', pauseTimeline);
+    $('splitBtn').addEventListener('click', splitAtCursor);
+    $('newSessionBtn').addEventListener('click', () => {
+      if (confirm('Start a new session? This will unload the current video and reset all edits.')) {
+        resetAll(true);
+      }
+    });
+    $('detectBtn').addEventListener('click', detectSilence);
+    $('applySilenceBtn').addEventListener('click', applySilenceAsOneClip);
+    $('threshold').addEventListener('input', () => $('thresholdVal').textContent = $('threshold').value);
+
+    function pauseTimeline() {
+      state.previewRunId++;
+      state.playingTimeline = false;
+      state.activeTimelineItem = null;
+      video.pause();
+      pauseMirrorVideos();
+      draw();
+      updateUi();
+      log('Timeline preview paused.');
+    }
+
+    async function playTimeline() {
+      if (!state.clips.length && state.appliedSilence) return;
+      state.previewRunId++;
+      const runId = state.previewRunId;
+      state.playingTimeline = true;
+      video.pause();
+      pauseMirrorVideos();
+
+      if (!state.appliedSilence) {
+        if (!Number.isFinite(state.cursor) || state.cursor >= (state.duration || 0) - 0.01) state.cursor = 0;
+        video.currentTime = clamp(state.cursor, 0, state.duration || 0);
+        syncMirrorVideoTimes();
+        try {
+          await video.play();
+          await playMirrorVideos();
+        } catch {
+          state.cursor = 0;
+          video.currentTime = 0;
+          await video.play().catch(() => {});
+        }
+        state.playingTimeline = false;
+        return;
+      }
+
+      const total = timelineDuration();
+      if (!Number.isFinite(state.cursor) || state.cursor >= total - 0.01 || state.cursor < 0) {
+        state.cursor = 0;
+        syncPreviewToTimeline(true);
+        state.playingTimeline = true;
+      }
+      let t = clamp(state.cursor, 0, Math.max(0, total - 0.001));
+
+      while (runId === state.previewRunId && state.playingTimeline && t < total - 0.01) {
+        const map = timelineToSource(t);
+        if (!map.item) {
+          if (t !== 0) { t = 0; state.cursor = 0; continue; }
+          break;
+        }
+        const item = map.item;
+        state.activeTimelineItem = item;
+        state.selectedClip = item.clipIndex;
+        state.cursor = t;
+        state.suppressNativeTimeUpdate = true;
+        video.currentTime = clamp(map.sourceTime, 0, state.duration || 0);
+        syncMirrorVideoTimes();
+        setTimeout(() => { if (runId === state.previewRunId) state.suppressNativeTimeUpdate = false; }, 80);
+        updateCropOverlay();
+        updatePipPreview();
+        draw();
+        renderClips();
+        updateUi();
+
+        try {
+          await video.play();
+          await playMirrorVideos();
+        } catch { break; }
+
+        await waitUntil(() => {
+          if (runId !== state.previewRunId || !state.playingTimeline || video.paused) return true;
+          syncMirrorVideoTimes();
+          const offset = Math.max(0, video.currentTime - item.seg.start);
+          state.cursor = clamp(item.timelineStart + offset, item.timelineStart, item.timelineEnd);
+          draw();
+          updateUi();
+          updatePipPreview();
+          return video.currentTime >= item.seg.end - 0.025;
+        });
+
+        video.pause();
+        pauseMirrorVideos();
+        if (runId !== state.previewRunId || !state.playingTimeline) break;
+        t = item.timelineEnd;
+        state.cursor = t;
+      }
+
+      state.playingTimeline = false;
+      state.activeTimelineItem = null;
+      state.cursor = clamp(state.cursor, 0, timelineDuration());
+      syncPreviewToTimeline(true);
+    }
+
+    function selectedPipEnabled() {
+      const clip = state.clips[state.selectedClip];
+      return !!(clip && ensurePip(clip).enabled);
+    }
+
+    function findSegmentAtTimeline(t) {
+      const item = timelineToSource(t).item;
+      if (!item) return null;
+      return { clipIndex: item.clipIndex, seg: item.seg, segTimelineStart: item.timelineStart };
+    }
+
+    function waitUntil(predicate) {
+      return new Promise(resolve => {
+        const tick = () => predicate() ? resolve() : requestAnimationFrame(tick);
+        tick();
+      });
+    }
+
+    ['cropX','cropY','cropW','cropH'].forEach(id => $(id).addEventListener('input', () => {
+      const clip = state.clips[state.selectedClip];
+      if (!clip) return;
+      clip.crop = normalizeCrop({
+        x: Number($('cropX').value), y: Number($('cropY').value),
+        w: Number($('cropW').value), h: Number($('cropH').value)
+      });
+      refreshAfterCropChange();
+    }));
+
+    function normalizeCrop(c) {
+      c.w = Number(c.w);
+      c.h = Number(c.h);
+      c.x = Number(c.x);
+      c.y = Number(c.y);
+
+      if (state.allowOutOfBoundsCrop) {
+        // Main crop can be larger than the source and can move outside it.
+        // FFmpeg pads first, then crops, so out-of-source areas become black.
+        c.w = clamp(c.w, 10, 300);
+        c.h = clamp(c.h, 10, 300);
+        c.x = clamp(c.x, -200, 200);
+        c.y = clamp(c.y, -200, 200);
+      } else {
+        // Strict mode: keep the main crop entirely inside the source video.
+        c.w = clamp(c.w, 10, 100);
+        c.h = clamp(c.h, 10, 100);
+        c.x = clamp(c.x, 0, 100 - c.w);
+        c.y = clamp(c.y, 0, 100 - c.h);
+      }
+      return c;
+    }
+
+    function normalizeSourceCrop(c) {
+      // PIP source crop: this selects pixels from the original video, so keep
+      // it inside the source bounds.
+      c.w = clamp(Number(c.w), 5, 100);
+      c.h = clamp(Number(c.h), 5, 100);
+      c.x = clamp(Number(c.x), 0, 100 - c.w);
+      c.y = clamp(Number(c.y), 0, 100 - c.h);
+      return c;
+    }
+
+    function normalizeFrame(f) {
+      f.w = clamp(Number(f.w), 10, 80);
+      f.x = clamp(Number(f.x), 0, 100 - f.w);
+      f.y = clamp(Number(f.y), 0, 90);
+      return f;
+    }
+
+
+    function cropIsOutOfBounds(c) {
+      return c.x < 0 || c.y < 0 || c.x + c.w > 100 || c.y + c.h > 100;
+    }
+
+    function updateAdvancedCropUi() {
+      const open = !!state.advancedCropOpen;
+      $('mainAdvancedCrop').classList.toggle('open', open);
+      $('pipAdvancedCrop').classList.toggle('open', open);
+      $('advancedCropToggle').classList.toggle('active', open);
+      $('advancedCropToggle').textContent = open ? 'Advanced crop: on' : 'Advanced crop';
+    }
+
+    function updateCropSliderLimits() {
+      updateAdvancedCropUi();
+      $('cropX').min = state.allowOutOfBoundsCrop ? -200 : 0;
+      $('cropX').max = state.allowOutOfBoundsCrop ? 200 : 100;
+      $('cropY').min = state.allowOutOfBoundsCrop ? -200 : 0;
+      $('cropY').max = state.allowOutOfBoundsCrop ? 200 : 100;
+      $('cropW').max = state.allowOutOfBoundsCrop ? 300 : 100;
+      $('cropH').max = state.allowOutOfBoundsCrop ? 300 : 100;
+      $('cropBoundsToggle').classList.toggle('active', state.allowOutOfBoundsCrop);
+      $('cropBoundsToggle').textContent = state.allowOutOfBoundsCrop ? 'Allow outside of bounds: on' : 'Allow outside of bounds';
+    }
+
+    function refreshAfterCropChange() {
+      loadCropSliders();
+      updateCropOverlay();
+      updatePipPlacementStage();
+      updatePipPreview();
+      generateCommand(false);
+    }
+
+    function resetViewerPadding() {
+      viewer.style.paddingTop = '14px';
+      viewer.style.paddingBottom = '14px';
+      viewer.style.paddingLeft = '14px';
+      viewer.style.paddingRight = '14px';
+    }
+
+    function updateViewerPaddingForCrop(c) {
+      // Absolute overlays do not affect layout by default. Reserve extra
+      // viewer padding so an out-of-bounds crop pushes the controls/timeline
+      // down instead of drawing on top of them.
+      const vr = video.getBoundingClientRect();
+      const extraTop = Math.max(0, -c.y / 100 * vr.height);
+      const extraBottom = Math.max(0, (c.y + c.h - 100) / 100 * vr.height);
+      const extraLeft = Math.max(0, -c.x / 100 * vr.width);
+      const extraRight = Math.max(0, (c.x + c.w - 100) / 100 * vr.width);
+
+      viewer.style.paddingTop = `${14 + extraTop}px`;
+      viewer.style.paddingBottom = `${14 + extraBottom}px`;
+      viewer.style.paddingLeft = `${14 + Math.min(extraLeft, 240)}px`;
+      viewer.style.paddingRight = `${14 + Math.min(extraRight, 240)}px`;
+    }
+
+
+    function loadCropSliders() {
+      updateCropSliderLimits();
+      const c = state.clips[state.selectedClip]?.crop || defaultCrop();
+      $('cropX').value = c.x; $('cropY').value = c.y; $('cropW').value = c.w; $('cropH').value = c.h;
+    }
+
+    function updateCropOverlay() {
+      const clip = state.clips[state.selectedClip];
+      if (!clip) {
+        cropOverlay.style.display = 'none';
+        resetViewerPadding();
+        return;
+      }
+      const c = clip.crop;
+      updateViewerPaddingForCrop(c);
+
+      if (c.x === 0 && c.y === 0 && c.w === 100 && c.h === 100) {
+        cropOverlay.style.display = 'none';
+        return;
+      }
+
+      const vr = video.getBoundingClientRect();
+      const pr = viewer.getBoundingClientRect();
+      cropOverlay.style.display = 'block';
+      cropOverlay.style.left = `${vr.left - pr.left + vr.width * c.x / 100}px`;
+      cropOverlay.style.top = `${vr.top - pr.top + vr.height * c.y / 100}px`;
+      cropOverlay.style.width = `${vr.width * c.w / 100}px`;
+      cropOverlay.style.height = `${vr.height * c.h / 100}px`;
+      cropOverlay.style.background = cropIsOutOfBounds(c) ? 'rgba(0,0,0,.18)' : 'transparent';
+    }
+
+    function loadPipSliders() {
+      const clip = state.clips[state.selectedClip];
+      const pip = clip ? ensurePip(clip) : defaultPip();
+      $('pipCropX').value = pip.crop.x;
+      $('pipCropY').value = pip.crop.y;
+      $('pipCropW').value = pip.crop.w;
+      $('pipCropH').value = pip.crop.h;
+      $('pipX').value = pip.frame.x;
+      $('pipY').value = pip.frame.y;
+      $('pipW').value = pip.frame.w;
+      $('pipToggle').classList.toggle('active', !!pip.enabled);
+      $('pipToggle').textContent = pip.enabled ? 'PIP mode: on' : 'PIP mode';
+      $('pipPanel').classList.toggle('open', state.pipEditMode || !!pip.enabled);
+      $('pipStatus').textContent = pip.enabled ? 'on' : 'off';
+    }
+
+    function pipFrameHeightPct(pip) {
+      const sourceAspect = sourceAspectRatio();
+      const pipAspect = Math.max(0.05, (pip.crop.w * sourceAspect) / Math.max(0.001, pip.crop.h));
+      return pip.frame.w / pipAspect;
+    }
+
+
+    function renderPreviewMetrics(clip, stageRect = null) {
+      const render = renderSize();
+      const sourceAspect = sourceAspectRatio();
+      const outputAspect = render.w / render.h;
+      const mainCropAspect = Math.max(0.05, (clip.crop.w * sourceAspect) / Math.max(0.001, clip.crop.h));
+
+      let boxW, boxH;
+      if (stageRect) {
+        boxW = stageRect.width;
+        boxH = stageRect.height;
+      } else {
+        boxW = render.w;
+        boxH = render.h;
+      }
+
+      let mainW = boxW;
+      let mainH = mainW / mainCropAspect;
+      if (mainH > boxH) {
+        mainH = boxH;
+        mainW = mainH * mainCropAspect;
+      }
+
+      return {
+        render,
+        sourceAspect,
+        outputAspect,
+        mainCropAspect,
+        mainX: (boxW - mainW) / 2,
+        mainY: (boxH - mainH) / 2,
+        mainW,
+        mainH,
+        boxW,
+        boxH,
+      };
+    }
+
+    function pipPlacementAspect(pip) {
+      return Math.max(0.05, (pip.crop.w * sourceAspectRatio()) / Math.max(0.001, pip.crop.h));
+    }
+
+    function normalizedPlacementBounds(clip) {
+      // PIP placement is stored in final render percent coordinates, but it is
+      // constrained to the rendered main crop area so it cannot enter black bars
+      // or leave the visible main video.
+      const metrics = renderPreviewMetrics(clip);
+      return {
+        x: metrics.mainX / metrics.boxW * 100,
+        y: metrics.mainY / metrics.boxH * 100,
+        w: metrics.mainW / metrics.boxW * 100,
+        h: metrics.mainH / metrics.boxH * 100,
+      };
+    }
+
+    function placementHeightPctFromWidth(clip, pip, widthPct) {
+      const metrics = renderPreviewMetrics(clip);
+      const aspect = pipPlacementAspect(pip);
+      const widthPx = metrics.boxW * widthPct / 100;
+      const heightPx = widthPx / aspect;
+      return heightPx / metrics.boxH * 100;
+    }
+
+    function clampPipFrameToMain(clip) {
+      const pip = ensurePip(clip);
+      const bounds = normalizedPlacementBounds(clip);
+      const aspect = pipPlacementAspect(pip);
+
+      let w = clamp(Number(pip.frame.w), 5, bounds.w);
+      let h = placementHeightPctFromWidth(clip, pip, w);
+
+      if (h > bounds.h) {
+        const metrics = renderPreviewMetrics(clip);
+        const maxHPx = metrics.boxH * bounds.h / 100;
+        const maxWPx = maxHPx * aspect;
+        w = maxWPx / metrics.boxW * 100;
+        h = bounds.h;
+      }
+
+      pip.frame.w = clamp(w, 5, bounds.w);
+      pip.frame.x = clamp(Number(pip.frame.x), bounds.x, bounds.x + bounds.w - pip.frame.w);
+      pip.frame.y = clamp(Number(pip.frame.y), bounds.y, bounds.y + bounds.h - h);
+      return pip.frame;
+    }
+
+    function setPipFrameInsideMain(clip, frame) {
+      const pip = ensurePip(clip);
+      pip.frame = { ...pip.frame, ...frame };
+      clampPipFrameToMain(clip);
+      loadPipSliders();
+      updatePipPlacementStage();
+      updatePipPreview();
+      renderClips();
+      generateCommand(false);
+    }
+
+    function updatePipPreview() {
+      const clip = state.clips[state.selectedClip];
+      if (!clip) {
+        pipPreview.style.display = 'none';
+        updatePipPlacementStage();
+        return;
+      }
+
+      const pip = ensurePip(clip);
+      loadPipSliders();
+      if (pip.enabled) clampPipFrameToMain(clip);
+      updatePipPlacementStage();
+
+      // The green overlay on the real video is the PIP SOURCE crop:
+      // what part of the original video gets copied.
+      if (!pip.enabled) { pipPreview.style.display = 'none'; return; }
+
+      const vr = video.getBoundingClientRect();
+      const pr = viewer.getBoundingClientRect();
+      const x = vr.width * pip.crop.x / 100;
+      const y = vr.height * pip.crop.y / 100;
+      const frameW = vr.width * pip.crop.w / 100;
+      const frameH = vr.height * pip.crop.h / 100;
+
+      pipPreview.style.display = 'block';
+      pipPreview.style.left = `${vr.left - pr.left + x}px`;
+      pipPreview.style.top = `${vr.top - pr.top + y}px`;
+      pipPreview.style.width = `${frameW}px`;
+      pipPreview.style.height = `${frameH}px`;
+
+      const fullW = vr.width;
+      const fullH = vr.height;
+      pipVideo.style.width = `${fullW}px`;
+      pipVideo.style.height = `${fullH}px`;
+      pipVideo.style.left = `${-x}px`;
+      pipVideo.style.top = `${-y}px`;
+      syncMirrorVideoTimes();
+    }
+
+    function updatePipPlacementStage() {
+      if (!pipPlacementStage || !pipPlacementBox || !pipPlacementMain) return;
+      const clip = state.clips[state.selectedClip];
+      if (!clip) {
+        pipPlacementBox.style.display = 'none';
+        pipPlacementMain.style.display = 'none';
+        return;
+      }
+
+      const pip = ensurePip(clip);
+      const render = renderSize();
+      pipPlacementStage.style.aspectRatio = `${render.w} / ${render.h}`;
+      pipPlacementBox.style.display = pip.enabled ? 'block' : 'none';
+      pipPlacementMain.style.display = 'block';
+
+      const stage = pipPlacementStage.getBoundingClientRect();
+      const metrics = renderPreviewMetrics(clip, stage);
+
+      // Main layer: show the selected main crop, fitted into the final render.
+      pipPlacementMain.style.left = `${metrics.mainX}px`;
+      pipPlacementMain.style.top = `${metrics.mainY}px`;
+      pipPlacementMain.style.width = `${metrics.mainW}px`;
+      pipPlacementMain.style.height = `${metrics.mainH}px`;
+      placeVideoCropInBox(pipPlacementMainVideo, metrics.mainW, metrics.mainH, clip.crop, metrics.sourceAspect);
+
+      if (pip.enabled) clampPipFrameToMain(clip);
+
+      // PIP layer: show the selected PIP source crop at its actual placement.
+      const pipAspect = pipPlacementAspect(pip);
+      let boxW = stage.width * pip.frame.w / 100;
+      let boxH = boxW / pipAspect;
+
+      const x = stage.width * pip.frame.x / 100;
+      const y = stage.height * pip.frame.y / 100;
+
+      pipPlacementBox.style.left = `${x}px`;
+      pipPlacementBox.style.top = `${y}px`;
+      pipPlacementBox.style.width = `${boxW}px`;
+      pipPlacementBox.style.height = `${boxH}px`;
+      placeVideoCropInBox(pipPlacementPipVideo, boxW, boxH, pip.crop, metrics.sourceAspect);
+      syncMirrorVideoTimes();
+    }
+
+    window.addEventListener('resize', () => { draw(); updateCropOverlay(); updatePipPreview(); updatePipPlacementStage(); });
+
+    let cropDrag = null;
+    let cropResize = null;
+    let pipDrag = null;
+
+    if (cropResizeHandle) cropResizeHandle.addEventListener('pointerdown', (e) => {
+      const clip = state.clips[state.selectedClip];
+      if (!clip) return;
+      e.preventDefault();
+      e.stopPropagation();
+      cropResizeHandle.setPointerCapture(e.pointerId);
+      const c = clip.crop;
+      const vr = video.getBoundingClientRect();
+      cropResize = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        startCrop: { ...c },
+        screenRatio: Math.max(0.001, (c.w * vr.width) / Math.max(1, c.h * vr.height)),
+      };
+    });
+
+    if (cropResizeHandle) cropResizeHandle.addEventListener('pointermove', (e) => {
+      if (!cropResize || e.pointerId !== cropResize.pointerId) return;
+      const clip = state.clips[state.selectedClip];
+      if (!clip) return;
+      const vr = video.getBoundingClientRect();
+      const start = cropResize.startCrop;
+      const dxPct = ((e.clientX - cropResize.startX) / Math.max(1, vr.width)) * 100;
+      const dyPct = ((e.clientY - cropResize.startY) / Math.max(1, vr.height)) * 100;
+
+      let newWFromX = start.w + dxPct;
+      let newHFromY = start.h + dyPct;
+      let newW;
+      let newH;
+
+      if (Math.abs(dxPct) * vr.width >= Math.abs(dyPct) * vr.height) {
+        newW = newWFromX;
+        newH = (newW * vr.width) / (cropResize.screenRatio * vr.height);
+      } else {
+        newH = newHFromY;
+        newW = (newH * cropResize.screenRatio * vr.height) / vr.width;
+      }
+
+      const maxW = state.allowOutOfBoundsCrop ? 300 : Math.max(10, 100 - start.x);
+      const maxH = state.allowOutOfBoundsCrop ? 300 : Math.max(10, 100 - start.y);
+      const minW = 10;
+      const minH = 10;
+
+      if (newW > maxW) {
+        newW = maxW;
+        newH = (newW * vr.width) / (cropResize.screenRatio * vr.height);
+      }
+      if (newH > maxH) {
+        newH = maxH;
+        newW = (newH * cropResize.screenRatio * vr.height) / vr.width;
+      }
+      if (newW < minW) {
+        newW = minW;
+        newH = (newW * vr.width) / (cropResize.screenRatio * vr.height);
+      }
+      if (newH < minH) {
+        newH = minH;
+        newW = (newH * cropResize.screenRatio * vr.height) / vr.width;
+      }
+
+      clip.crop = normalizeCrop({ ...start, w: newW, h: newH });
+      refreshAfterCropChange();
+    });
+
+    if (cropResizeHandle) cropResizeHandle.addEventListener('pointerup', (e) => {
+      if (!cropResize || e.pointerId !== cropResize.pointerId) return;
+      cropResize = null;
+      log(`Crop size updated for ${state.clips[state.selectedClip]?.label || 'selected clip'}.`);
+    });
+
+    if (cropResizeHandle) cropResizeHandle.addEventListener('pointercancel', () => { cropResize = null; });
+
+    cropOverlay.addEventListener('pointerdown', (e) => {
+      const clip = state.clips[state.selectedClip];
+      if (!clip) return;
+      e.preventDefault();
+      cropOverlay.setPointerCapture(e.pointerId);
+      cropDrag = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        startCrop: { ...clip.crop },
+      };
+    });
+
+    cropOverlay.addEventListener('pointermove', (e) => {
+      if (!cropDrag || e.pointerId !== cropDrag.pointerId) return;
+      const clip = state.clips[state.selectedClip];
+      if (!clip) return;
+      const vr = video.getBoundingClientRect();
+      const dxPct = ((e.clientX - cropDrag.startX) / Math.max(1, vr.width)) * 100;
+      const dyPct = ((e.clientY - cropDrag.startY) / Math.max(1, vr.height)) * 100;
+      clip.crop = normalizeCrop({
+        ...cropDrag.startCrop,
+        x: cropDrag.startCrop.x + dxPct,
+        y: cropDrag.startCrop.y + dyPct,
+      });
+      refreshAfterCropChange();
+    });
+
+    cropOverlay.addEventListener('pointerup', (e) => {
+      if (!cropDrag || e.pointerId !== cropDrag.pointerId) return;
+      cropDrag = null;
+      log(`Crop position updated for ${state.clips[state.selectedClip]?.label || 'selected clip'}.`);
+    });
+
+    cropOverlay.addEventListener('pointercancel', () => { cropDrag = null; });
+
+    pipPreview.addEventListener('pointerdown', (e) => {
+      const clip = state.clips[state.selectedClip];
+      if (!clip || !ensurePip(clip).enabled) return;
+      e.preventDefault();
+      pipPreview.setPointerCapture(e.pointerId);
+      pipDrag = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        startCrop: { ...ensurePip(clip).crop },
+      };
+    });
+
+    pipPreview.addEventListener('pointermove', (e) => {
+      if (!pipDrag || e.pointerId !== pipDrag.pointerId) return;
+      const clip = state.clips[state.selectedClip];
+      if (!clip) return;
+      const pip = ensurePip(clip);
+      const vr = video.getBoundingClientRect();
+      const dxPct = ((e.clientX - pipDrag.startX) / Math.max(1, vr.width)) * 100;
+      const dyPct = ((e.clientY - pipDrag.startY) / Math.max(1, vr.height)) * 100;
+
+      // Dragging the green box on the main video changes only the PIP SOURCE.
+      pip.crop = normalizeSourceCrop({
+        ...pipDrag.startCrop,
+        x: pipDrag.startCrop.x + dxPct,
+        y: pipDrag.startCrop.y + dyPct,
+      });
+
+      loadPipSliders();
+      updatePipPreview();
+      updatePipPlacementStage();
+      generateCommand(false);
+    });
+
+    pipPreview.addEventListener('pointerup', (e) => {
+      if (!pipDrag || e.pointerId !== pipDrag.pointerId) return;
+      pipDrag = null;
+      log(`PIP source crop updated for ${state.clips[state.selectedClip]?.label || 'selected clip'}.`);
+    });
+    pipPreview.addEventListener('pointercancel', () => { pipDrag = null; });
+
+    let pipPlacementDrag = null;
+
+    if (pipPlacementStage && pipPlacementBox) {
+      pipPlacementBox.addEventListener('pointerdown', (e) => {
+        const clip = state.clips[state.selectedClip];
+        if (!clip || !ensurePip(clip).enabled) return;
+        e.preventDefault();
+        e.stopPropagation();
+        pipPlacementBox.setPointerCapture(e.pointerId);
+        pipPlacementDrag = {
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          startFrame: { ...ensurePip(clip).frame },
+        };
+      });
+
+      pipPlacementBox.addEventListener('pointermove', (e) => {
+        if (!pipPlacementDrag || e.pointerId !== pipPlacementDrag.pointerId) return;
+        const clip = state.clips[state.selectedClip];
+        if (!clip) return;
+        const pip = ensurePip(clip);
+        const rect = pipPlacementStage.getBoundingClientRect();
+        const dxPct = ((e.clientX - pipPlacementDrag.startX) / Math.max(1, rect.width)) * 100;
+        const dyPct = ((e.clientY - pipPlacementDrag.startY) / Math.max(1, rect.height)) * 100;
+
+        const pipAspect = Math.max(0.05, (pip.crop.w * sourceAspectRatio()) / Math.max(0.001, pip.crop.h));
+        const stageAspect = Math.max(0.05, rect.width / Math.max(1, rect.height));
+        const boxHPct = pip.frame.w * stageAspect / pipAspect;
+
+        pip.frame = {
+          ...pip.frame,
+          x: pipPlacementDrag.startFrame.x + dxPct,
+          y: pipPlacementDrag.startFrame.y + dyPct,
+        };
+        clampPipFrameToMain(clip);
+
+        loadPipSliders();
+        updatePipPlacementStage();
+        updatePipPreview();
+        generateCommand(false);
+      });
+
+      pipPlacementBox.addEventListener('pointerup', (e) => {
+        if (!pipPlacementDrag || e.pointerId !== pipPlacementDrag.pointerId) return;
+        pipPlacementDrag = null;
+        log(`PIP final placement updated for ${state.clips[state.selectedClip]?.label || 'selected clip'}.`);
+      });
+
+      pipPlacementBox.addEventListener('pointercancel', () => { pipPlacementDrag = null; });
+    }
+
+
+    let pipSourceResize = null;
+    if (pipSourceResizeHandle) {
+      pipSourceResizeHandle.addEventListener('pointerdown', (e) => {
+        const clip = state.clips[state.selectedClip];
+        if (!clip || !ensurePip(clip).enabled) return;
+        e.preventDefault();
+        e.stopPropagation();
+        pipSourceResizeHandle.setPointerCapture(e.pointerId);
+        const pip = ensurePip(clip);
+        const vr = video.getBoundingClientRect();
+        pipSourceResize = {
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          startCrop: { ...pip.crop },
+          screenRatio: Math.max(0.001, (pip.crop.w * vr.width) / Math.max(1, pip.crop.h * vr.height)),
+        };
+      });
+
+      pipSourceResizeHandle.addEventListener('pointermove', (e) => {
+        if (!pipSourceResize || e.pointerId !== pipSourceResize.pointerId) return;
+        const clip = state.clips[state.selectedClip];
+        if (!clip) return;
+        const pip = ensurePip(clip);
+        const vr = video.getBoundingClientRect();
+        const start = pipSourceResize.startCrop;
+        const dxPct = ((e.clientX - pipSourceResize.startX) / Math.max(1, vr.width)) * 100;
+        const dyPct = ((e.clientY - pipSourceResize.startY) / Math.max(1, vr.height)) * 100;
+
+        let newW;
+        let newH;
+        if (Math.abs(dxPct) * vr.width >= Math.abs(dyPct) * vr.height) {
+          newW = start.w + dxPct;
+          newH = (newW * vr.width) / (pipSourceResize.screenRatio * vr.height);
+        } else {
+          newH = start.h + dyPct;
+          newW = (newH * pipSourceResize.screenRatio * vr.height) / vr.width;
+        }
+
+        const maxW = 100 - start.x;
+        const maxH = 100 - start.y;
+        if (newW > maxW) {
+          newW = maxW;
+          newH = (newW * vr.width) / (pipSourceResize.screenRatio * vr.height);
+        }
+        if (newH > maxH) {
+          newH = maxH;
+          newW = (newH * pipSourceResize.screenRatio * vr.height) / vr.width;
+        }
+        if (newW < 5) {
+          newW = 5;
+          newH = (newW * vr.width) / (pipSourceResize.screenRatio * vr.height);
+        }
+        if (newH < 5) {
+          newH = 5;
+          newW = (newH * pipSourceResize.screenRatio * vr.height) / vr.width;
+        }
+
+        pip.crop = normalizeSourceCrop({ ...start, w: newW, h: newH });
+        loadPipSliders();
+        updatePipPreview();
+        updatePipPlacementStage();
+        generateCommand(false);
+      });
+
+      pipSourceResizeHandle.addEventListener('pointerup', (e) => {
+        if (!pipSourceResize || e.pointerId !== pipSourceResize.pointerId) return;
+        pipSourceResize = null;
+        log(`PIP source size updated for ${state.clips[state.selectedClip]?.label || 'selected clip'}.`);
+      });
+      pipSourceResizeHandle.addEventListener('pointercancel', () => { pipSourceResize = null; });
+    }
+
+    let pipPlacementResize = null;
+    if (pipPlacementResizeHandle) {
+      pipPlacementResizeHandle.addEventListener('pointerdown', (e) => {
+        const clip = state.clips[state.selectedClip];
+        if (!clip || !ensurePip(clip).enabled) return;
+        e.preventDefault();
+        e.stopPropagation();
+        pipPlacementResizeHandle.setPointerCapture(e.pointerId);
+        pipPlacementResize = {
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          startFrame: { ...ensurePip(clip).frame },
+        };
+      });
+
+      pipPlacementResizeHandle.addEventListener('pointermove', (e) => {
+        if (!pipPlacementResize || e.pointerId !== pipPlacementResize.pointerId) return;
+        const clip = state.clips[state.selectedClip];
+        if (!clip) return;
+        const pip = ensurePip(clip);
+        const stage = pipPlacementStage.getBoundingClientRect();
+        const dxPct = ((e.clientX - pipPlacementResize.startX) / Math.max(1, stage.width)) * 100;
+        const dyPct = ((e.clientY - pipPlacementResize.startY) / Math.max(1, stage.height)) * 100;
+
+        const metrics = renderPreviewMetrics(clip);
+        const bounds = normalizedPlacementBounds(clip);
+        const aspect = pipPlacementAspect(pip);
+        let newW;
+
+        if (Math.abs(dxPct) * stage.width >= Math.abs(dyPct) * stage.height) {
+          newW = pipPlacementResize.startFrame.w + dxPct;
+        } else {
+          const startHPct = placementHeightPctFromWidth(clip, pip, pipPlacementResize.startFrame.w);
+          const newHPct = startHPct + dyPct;
+          const newHPx = metrics.boxH * newHPct / 100;
+          newW = (newHPx * aspect) / metrics.boxW * 100;
+        }
+
+        pip.frame.w = newW;
+        clampPipFrameToMain(clip);
+        loadPipSliders();
+        updatePipPlacementStage();
+        updatePipPreview();
+        generateCommand(false);
+      });
+
+      pipPlacementResizeHandle.addEventListener('pointerup', (e) => {
+        if (!pipPlacementResize || e.pointerId !== pipPlacementResize.pointerId) return;
+        pipPlacementResize = null;
+        log(`PIP placement size updated for ${state.clips[state.selectedClip]?.label || 'selected clip'}.`);
+      });
+      pipPlacementResizeHandle.addEventListener('pointercancel', () => { pipPlacementResize = null; });
+    }
+
+    function fitPipToWidthForInitialUse(clip) {
+      const pip = ensurePip(clip);
+      const bounds = normalizedPlacementBounds(clip);
+      pip.frame.w = bounds.w;
+      pip.frame.x = bounds.x;
+      clampPipFrameToMain(clip);
+    }
+
+    function nudgePipPlacement(action) {
+      const clip = state.clips[state.selectedClip];
+      if (!clip) return;
+      const pip = ensurePip(clip);
+      pip.enabled = true;
+      const bounds = normalizedPlacementBounds(clip);
+      const h = placementHeightPctFromWidth(clip, pip, pip.frame.w);
+
+      if (action === 'centerH') pip.frame.x = bounds.x + (bounds.w - pip.frame.w) / 2;
+      if (action === 'centerV') pip.frame.y = bounds.y + (bounds.h - h) / 2;
+      if (action === 'fitW') pip.frame.w = bounds.w;
+      if (action === 'fitH') {
+        const metrics = renderPreviewMetrics(clip);
+        const aspect = pipPlacementAspect(pip);
+        const maxHPx = metrics.boxH * bounds.h / 100;
+        const maxWPx = maxHPx * aspect;
+        pip.frame.w = maxWPx / metrics.boxW * 100;
+      }
+
+      clampPipFrameToMain(clip);
+      loadPipSliders();
+      updatePipPlacementStage();
+      updatePipPreview();
+      renderClips();
+      generateCommand(false);
+      log('PIP placement updated.');
+    }
+
+
+    $('advancedCropToggle').addEventListener('click', () => {
+      state.advancedCropOpen = !state.advancedCropOpen;
+      updateAdvancedCropUi();
+      log(state.advancedCropOpen ? 'Advanced crop sliders shown.' : 'Advanced crop sliders hidden.');
+    });
+
+    $('cropBoundsToggle').addEventListener('click', () => {
+      state.allowOutOfBoundsCrop = !state.allowOutOfBoundsCrop;
+      updateCropSliderLimits();
+      const clip = state.clips[state.selectedClip];
+      if (clip && !state.allowOutOfBoundsCrop) {
+        clip.crop = normalizeCrop(clip.crop);
+        log('Black bars crop disabled. Crop was clamped back inside the source video.');
+      } else {
+        log('Black bars crop enabled. Main crop can move and scale beyond the source video.');
+      }
+      refreshAfterCropChange();
+    });
+    $('ratio169').addEventListener('click', () => applyCropRatio(16, 9));
+    $('ratio43').addEventListener('click', () => applyCropRatio(4, 3));
+    $('ratio916').addEventListener('click', () => applyCropRatio(9, 16));
+    $('res1080').addEventListener('click', () => setRenderSize(1920, 1080));
+    $('res720').addEventListener('click', () => setRenderSize(1280, 720));
+    $('resVertical').addEventListener('click', () => setRenderSize(1080, 1920));
+    $('renderW').addEventListener('input', () => { updatePipPlacementStage(); updatePipPreview(); updateBitrateEstimate(); generateCommand(false); });
+    $('renderH').addEventListener('input', () => { updatePipPlacementStage(); updatePipPreview(); updateBitrateEstimate(); generateCommand(false); });
+    $('x264Preset').addEventListener('change', () => { generateCommand(false); updateBitrateEstimate(); log(`Quality/Speed preset set to ${$('x264Preset').value}.`); });
+    $('rateMode').addEventListener('change', () => { updateRateControlUi(); generateCommand(false); log(`Encoding mode set to ${$('rateMode').value === 'bitrate' ? 'manual bitrate' : 'CRF quality'}.`); });
+    $('crfValue').addEventListener('change', () => { generateCommand(false); log(`CRF set to ${$('crfValue').value}.`); });
+    $('videoBitrate').addEventListener('input', () => { updateBitrateEstimate(); generateCommand(false); });
+    $('pipToggle').addEventListener('click', () => {
+      const clip = state.clips[state.selectedClip];
+      if (!clip) {
+        state.pipEditMode = !state.pipEditMode;
+        loadPipSliders();
+        return;
+      }
+      const pip = ensurePip(clip);
+      const wasEnabled = pip.enabled;
+      pip.enabled = !pip.enabled;
+      state.pipEditMode = pip.enabled;
+      if (pip.enabled && !wasEnabled) fitPipToWidthForInitialUse(clip);
+      if (pip.enabled && pipVideo.src && !pipVideo.currentTime) pipVideo.currentTime = video.currentTime || 0;
+      loadPipSliders();
+      updatePipPreview();
+      updatePipPlacementStage();
+      renderClips();
+      generateCommand(false);
+      log(`${pip.enabled ? 'PIP enabled' : 'PIP disabled'} for ${clip.label}.`);
+    });
+    $('pipCrop169').addEventListener('click', () => applyPipCropRatio(16, 9));
+    $('pipCrop43').addEventListener('click', () => applyPipCropRatio(4, 3));
+    $('pipCrop916').addEventListener('click', () => applyPipCropRatio(9, 16));
+    $('pipCenterH').addEventListener('click', () => nudgePipPlacement('centerH'));
+    $('pipCenterV').addEventListener('click', () => nudgePipPlacement('centerV'));
+    $('pipFitW').addEventListener('click', () => nudgePipPlacement('fitW'));
+    $('pipFitH').addEventListener('click', () => nudgePipPlacement('fitH'));
+    ['pipCropX','pipCropY','pipCropW','pipCropH','pipX','pipY','pipW'].forEach(id => $(id).addEventListener('input', updatePipFromSliders));
+
+    renderBrowserBtn.addEventListener('click', renderInBrowser);
+
+    copyHeaderBtn.addEventListener('click', async () => {
+      const text = generateCommand(false);
+      if (!text) {
+        log('Open a video and create at least one clip before copying the FFmpeg command.');
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      log('FFmpeg command generated and copied to clipboard.');
+    });
+
+    function shellQuote(s) {
+      return `'${String(s).replaceAll("'", "'\\''")}'`;
+    }
+
+    function evenInt(n, min = 2) {
+      const v = Math.max(min, Math.round(Number(n) || min));
+      return Math.max(min, Math.floor(v / 2) * 2);
+    }
+
+    function cropExpr(c, inW = 'iw', inH = 'ih') {
+      if (!c) return '';
+
+      const srcW = video.videoWidth || 1920;
+      const srcH = video.videoHeight || 1080;
+
+      const cropW = evenInt(srcW * Number(c.w) / 100);
+      const cropH = evenInt(srcH * Number(c.h) / 100);
+      const cropX = Math.round(srcW * Number(c.x) / 100);
+      const cropY = Math.round(srcH * Number(c.y) / 100);
+
+      const isFullInside = c.x === 0 && c.y === 0 && c.w === 100 && c.h === 100;
+      if (isFullInside) return '';
+
+      const padL = Math.max(0, -cropX);
+      const padT = Math.max(0, -cropY);
+      const padR = Math.max(0, cropX + cropW - srcW);
+      const padB = Math.max(0, cropY + cropH - srcH);
+
+      const paddedW = srcW + padL + padR;
+      const paddedH = srcH + padT + padB;
+      const finalX = cropX + padL;
+      const finalY = cropY + padT;
+
+      const crop = `crop=${cropW}:${cropH}:${finalX}:${finalY}`;
+      if (padL || padT || padR || padB) {
+        return `pad=${paddedW}:${paddedH}:${padL}:${padT}:black,${crop}`;
+      }
+      return crop;
+    }
+
+    function evenNumber(value, fallback) {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n < 160) return fallback;
+      return Math.max(160, Math.floor(n / 2) * 2);
+    }
+
+    function renderSize() {
+      return {
+        w: evenNumber($('renderW').value, 1920),
+        h: evenNumber($('renderH').value, 1080),
+      };
+    }
+
+    function mainBaseFilter(c, labelOut = 'main') {
+      const { w, h } = renderSize();
+      const filters = [];
+      const crop = cropExpr(c);
+      if (crop) filters.push(crop);
+      filters.push(`scale=${w}:${h}:force_original_aspect_ratio=decrease`);
+      filters.push(`pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:black`);
+      filters.push('setsar=1');
+      filters.push('format=yuv420p');
+      return filters.join(',') + `[${labelOut}]`;
+    }
+
+    function outputFitFilter(c) {
+      const { w, h } = renderSize();
+      const filters = [];
+      const crop = cropExpr(c);
+      if (crop) filters.push(crop);
+      filters.push(`scale=${w}:${h}:force_original_aspect_ratio=decrease`);
+      filters.push(`pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:black`);
+      filters.push('setsar=1');
+      filters.push('format=yuv420p');
+      return filters.join(',');
+    }
+
+    function pipFilterComplex(clip) {
+      const pip = ensurePip(clip);
+      const { w, h } = renderSize();
+      if (!pip.enabled) return null;
+      clampPipFrameToMain(clip);
+
+      const frameW = Math.max(2, Math.floor((w * pip.frame.w / 100) / 2) * 2);
+      const sourceAspect = sourceAspectRatio();
+      const pipAspect = Math.max(0.05, (pip.crop.w * sourceAspect) / Math.max(0.001, pip.crop.h));
+      const frameH = Math.max(2, Math.floor((frameW / pipAspect) / 2) * 2);
+      const xPx = Math.max(0, Math.floor((w * pip.frame.x / 100) / 2) * 2);
+      const yPx = Math.max(0, Math.floor((h * pip.frame.y / 100) / 2) * 2);
+
+      const pipCrop = cropExpr(pip.crop);
+      const pipChain = [
+        pipCrop,
+        `scale=${frameW}:${frameH}:force_original_aspect_ratio=increase`,
+        `crop=${frameW}:${frameH}`,
+        'setsar=1',
+        'format=yuv420p'
+      ].filter(Boolean).join(',');
+
+      return `[0:v]${mainBaseFilter(clip.crop, 'base')};[0:v]${pipChain}[pip];[base][pip]overlay=${xPx}:${yPx}:format=auto,format=yuv420p`;
+    }
+
+    function sourceAspectRatio() {
+      const vw = video.videoWidth || 16;
+      const vh = video.videoHeight || 9;
+      return vw / vh;
+    }
+
+    function ratioCrop(ratioW, ratioH) {
+      const targetAspect = ratioW / ratioH;
+      const sourceAspect = sourceAspectRatio();
+      let w = 100;
+      let h = 100;
+
+      if (sourceAspect > targetAspect) w = (targetAspect / sourceAspect) * 100;
+      else h = (sourceAspect / targetAspect) * 100;
+
+      return normalizeCrop({ x: (100 - w) / 2, y: (100 - h) / 2, w, h });
+    }
+
+    function applyCropRatio(ratioW, ratioH) {
+      const clip = state.clips[state.selectedClip];
+      if (!clip) return;
+      clip.crop = ratioCrop(ratioW, ratioH);
+      refreshAfterCropChange();
+      log(`Applied ${ratioW}:${ratioH} crop to ${clip.label}. Drag the crop box in the preview to position it precisely.`);
+    }
+
+    function applyPipCropRatio(ratioW, ratioH) {
+      const clip = state.clips[state.selectedClip];
+      if (!clip) return;
+      const pip = ensurePip(clip);
+      pip.crop = sourceRatioCrop(ratioW, ratioH);
+      pip.enabled = true;
+      loadPipSliders();
+      updatePipPreview();
+      renderClips();
+      generateCommand(false);
+      log(`Applied ${ratioW}:${ratioH} PIP crop to ${clip.label}.`);
+    }
+
+    function updatePipFromSliders() {
+      const clip = state.clips[state.selectedClip];
+      if (!clip) return;
+      const pip = ensurePip(clip);
+      pip.crop = normalizeSourceCrop({
+        x: Number($('pipCropX').value),
+        y: Number($('pipCropY').value),
+        w: Number($('pipCropW').value),
+        h: Number($('pipCropH').value),
+      });
+      pip.frame = {
+        x: Number($('pipX').value),
+        y: Number($('pipY').value),
+        w: Number($('pipW').value),
+      };
+      pip.enabled = true;
+      clampPipFrameToMain(clip);
+      loadPipSliders();
+      updatePipPlacementStage();
+      updatePipPreview();
+      renderClips();
+      generateCommand(false);
+    }
+
+    function setRenderSize(w, h) {
+      $('renderW').value = w;
+      $('renderH').value = h;
+      updatePipPlacementStage();
+      updatePipPreview();
+      generateCommand(false);
+      log(`Render resolution set to ${w}×${h}.`);
+    }
+
+
+
+    function pct(n) {
+      return `${Math.round(clamp(n, 0, 100))}%`;
+    }
+
+    function showRenderProgress() {
+      renderProgressPanel.classList.remove('hidden');
+    }
+
+    function updateRenderBars(loadPct = null, renderPct = null) {
+      if (loadPct !== null) {
+        const p = clamp(loadPct, 0, 100);
+        ffmpegLoadBar.style.width = `${p}%`;
+        ffmpegLoadPct.textContent = pct(p);
+      }
+      if (renderPct !== null) {
+        const p = clamp(renderPct, 0, 100);
+        ffmpegRenderBar.style.width = `${p}%`;
+        ffmpegRenderPct.textContent = pct(p);
+      }
+    }
+
+    function renderLog(message) {
+      showRenderProgress();
+      const time = new Date().toLocaleTimeString();
+      renderLogBox.textContent += `\n[${time}] ${message}`;
+      renderLogBox.scrollTop = renderLogBox.scrollHeight;
+    }
+
+    function resetRenderProgress(message = 'Waiting.') {
+      showRenderProgress();
+      renderPhaseText.textContent = 'idle';
+      updateRenderBars(0, 0);
+      renderLogBox.textContent = message;
+    }
+
+
+    async function withTimeout(promise, ms, label) {
+      let timer;
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms);
+      });
+      try {
+        return await Promise.race([promise, timeout]);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    async function blobURLWithProgress(url, mimeType, startPct, endPct, label) {
+      renderPhaseText.textContent = label;
+      renderLog(`Downloading ${label}...`);
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Failed to download ${label}: HTTP ${response.status}`);
+
+      const total = Number(response.headers.get('content-length')) || 0;
+      if (!response.body || !total) {
+        const blob = await response.blob();
+        updateRenderBars(endPct, null);
+        return URL.createObjectURL(new Blob([blob], { type: mimeType }));
+      }
+
+      const reader = response.body.getReader();
+      const chunks = [];
+      let received = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.byteLength;
+        const local = received / total;
+        updateRenderBars(startPct + (endPct - startPct) * local, null);
+      }
+
+      updateRenderBars(endPct, null);
+      return URL.createObjectURL(new Blob(chunks, { type: mimeType }));
+    }
+
+
+
+    function outputDurationSeconds() {
+      if (state.appliedSilence && state.clips.length) return timelineDuration();
+      if (state.clips.length) return timelineDuration();
+      return state.duration || 0;
+    }
+
+    function selectedVideoKbps() {
+      return Math.max(300, Number($('videoBitrate')?.value || 4000));
+    }
+
+    function selectedAudioKbps() {
+      return 160;
+    }
+
+    function renderEncodingArgs() {
+      const preset = $('x264Preset')?.value || 'fast';
+      const mode = $('rateMode')?.value || 'crf';
+      if (mode === 'bitrate') {
+        const kbps = selectedVideoKbps();
+        return [
+          '-preset', preset,
+          '-b:v', `${kbps}k`,
+          '-minrate', `${kbps}k`,
+          '-maxrate', `${kbps}k`,
+          '-bufsize', `${Math.max(600, kbps * 2)}k`,
+        ];
+      }
+      return ['-preset', preset, '-crf', String($('crfValue')?.value || 23)];
+    }
+
+    function renderEncodingCommandString() {
+      const preset = $('x264Preset')?.value || 'fast';
+      const mode = $('rateMode')?.value || 'crf';
+      if (mode === 'bitrate') {
+        const kbps = selectedVideoKbps();
+        return `-c:v libx264 -preset ${preset} -b:v ${kbps}k -minrate ${kbps}k -maxrate ${kbps}k -bufsize ${Math.max(600, kbps * 2)}k -pix_fmt yuv420p`;
+      }
+      return `-c:v libx264 -preset ${preset} -crf ${$('crfValue')?.value || 23} -pix_fmt yuv420p`;
+    }
+
+    function updateRateControlUi() {
+      const mode = $('rateMode')?.value || 'crf';
+      $('crfPanel')?.classList.toggle('hidden', mode !== 'crf');
+      $('bitratePanel')?.classList.toggle('hidden', mode !== 'bitrate');
+      updateBitrateEstimate();
+    }
+
+    function updateBitrateEstimate() {
+      const bitrateInput = $('videoBitrate');
+      if (!bitrateInput) return;
+      const videoKbps = selectedVideoKbps();
+      const audioKbps = selectedAudioKbps();
+      $('videoBitrateVal').textContent = `${videoKbps.toLocaleString()} kbps`;
+
+      const duration = outputDurationSeconds();
+      const estimate = $('bitrateEstimate');
+      if (!estimate) return;
+
+      if (!duration) {
+        estimate.textContent = 'Estimated output size: unknown until a video is loaded.';
+        return;
+      }
+
+      const totalKbps = videoKbps + audioKbps;
+      const mb = totalKbps * duration / 8 / 1024;
+      const minutes = duration / 60;
+      estimate.textContent = `Estimated output size: ${mb.toFixed(mb < 10 ? 1 : 0)} MB for ${fmt(duration)} at ${videoKbps.toLocaleString()} kbps video + ${audioKbps} kbps audio.`;
+    }
+
+
+    function renderJobs() {
+      const jobs = [];
+      let i = 0;
+      let skipped = 0;
+
+      for (const clip of state.clips) {
+        for (const seg of clip.segments) {
+          const start = Number(seg.start);
+          const end = Number(seg.end);
+          const duration = end - start;
+
+          if (!Number.isFinite(start) || !Number.isFinite(end) || duration < MIN_RENDER_SEGMENT_SECONDS) {
+            skipped++;
+            continue;
+          }
+
+          jobs.push({
+            clip,
+            seg: { start, end },
+            duration,
+            out: `__jump_part_${String(i).padStart(4, '0')}.mp4`,
+          });
+          i++;
+        }
+      }
+
+      if (skipped) {
+        renderLog?.(`Skipped ${skipped} zero-length/tiny segment${skipped === 1 ? '' : 's'} below ${MIN_RENDER_SEGMENT_SECONDS}s.`);
+      }
+
+      return jobs;
+    }
+
+    function ffmpegArgsForJob(job, inputName) {
+      const filterComplex = pipFilterComplex(job.clip);
+      const duration = Math.max(MIN_RENDER_SEGMENT_SECONDS, job.duration || (job.seg.end - job.seg.start));
+
+      // Use -t duration instead of -to end-time. Very short or rounded
+      // -ss/-to pairs can produce zero-length jobs, and core-mt can crash hard
+      // on those. The caller filters tiny segments before this point.
+      const args = [
+        '-ss', String(sec(job.seg.start)),
+        '-i', inputName,
+        '-t', String(sec(duration)),
+      ];
+
+      if (filterComplex) args.push('-filter_complex', filterComplex);
+      else args.push('-vf', outputFitFilter(job.clip.crop));
+
+      args.push(
+        '-af', 'aresample=async=1:first_pts=0',
+        '-reset_timestamps', '1',
+        '-avoid_negative_ts', 'make_zero',
+        '-c:v', 'libx264',
+        ...renderEncodingArgs(),
+        '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac',
+        '-b:a', '160k',
+        job.out
+      );
+
+      return args;
+    }
+
+    async function getBrowserFFmpeg() {
+      if (browserFFmpegLoaded && browserFFmpeg) {
+        updateRenderBars(100, null);
+        renderLog('Multicore FFmpeg already loaded.');
+        return browserFFmpeg;
+      }
+
+      showRenderProgress();
+      renderPhaseText.textContent = 'checking';
+      renderBrowserBtn.disabled = true;
+      renderBrowserBtn.textContent = 'Loading FFmpeg...';
+      updateRenderBars(2, 0);
+      renderLogBox.textContent = 'Starting local multicore FFmpeg WebAssembly load...';
+      renderLog(`Environment: crossOriginIsolated=${window.crossOriginIsolated}, SharedArrayBuffer=${typeof SharedArrayBuffer !== 'undefined'}, origin=${location.origin}`);
+
+      if (!window.crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') {
+        throw new Error(
+          'Multicore FFmpeg requires cross-origin isolation. Serve the app with COOP/COEP headers: Cross-Origin-Opener-Policy=same-origin and Cross-Origin-Embedder-Policy=require-corp.'
+        );
+      }
+
+      renderLog('Using local multithread FFmpeg files from ./ffmpeg/core-mt/.');
+
+      const localURL = (path) => new URL(path, window.location.href).href;
+      const ffmpegModuleURL = localURL('./ffmpeg/ffmpeg/index.js');
+      const utilModuleURL = localURL('./ffmpeg/util/index.js');
+      const classWorkerURL = localURL('./ffmpeg/ffmpeg/worker.js');
+
+      // Multithreaded core-mt files.
+      const coreURL = localURL('./ffmpeg/core-mt/ffmpeg-core.js');
+      const wasmURL = localURL('./ffmpeg/core-mt/ffmpeg-core.wasm');
+      const workerURL = localURL('./ffmpeg/core-mt/ffmpeg-core.worker.js');
+
+      async function checkAsset(url, label, progress) {
+        renderPhaseText.textContent = `checking ${label}`;
+        renderLog(`Checking ${label}: ${url}`);
+        const response = await fetch(url, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`${label} not found or not served correctly: HTTP ${response.status} ${url}`);
+        const contentType = response.headers.get('content-type') || 'unknown';
+        const size = response.headers.get('content-length') || 'unknown size';
+        renderLog(`${label} OK (${contentType}, ${size} bytes).`);
+        updateRenderBars(progress, null);
+      }
+
+      await checkAsset(classWorkerURL, 'FFmpeg wrapper worker', 10);
+      await checkAsset(coreURL, 'FFmpeg multithread core JS', 22);
+      await checkAsset(wasmURL, 'FFmpeg multithread core WASM', 34);
+      await checkAsset(workerURL, 'FFmpeg core thread worker', 46);
+
+      renderLog('Importing local FFmpeg wrapper modules...');
+      updateRenderBars(55, null);
+      const [{ FFmpeg }, { fetchFile }] = await Promise.all([
+        import(ffmpegModuleURL),
+        import(utilModuleURL),
+      ]);
+      updateRenderBars(65, null);
+
+      const ffmpeg = new FFmpeg();
+      let activeJobIndex = 0;
+      let activeJobCount = 1;
+      let activeJobBase = 0;
+      let activeJobSpan = 1;
+
+      ffmpeg.on('log', ({ message }) => {
+        if (!message) return;
+        if (/error|failed|invalid/i.test(message)) renderLog(message);
+      });
+
+      ffmpeg.on('progress', ({ progress }) => {
+        if (!Number.isFinite(progress)) return;
+        const p = activeJobBase + activeJobSpan * clamp(progress, 0, 1);
+        updateRenderBars(null, p);
+        renderPhaseText.textContent = `rendering ${activeJobIndex}/${activeJobCount}`;
+      });
+
+      window.__setFFmpegJobProgress = (index, count, base, span) => {
+        activeJobIndex = index;
+        activeJobCount = count;
+        activeJobBase = base;
+        activeJobSpan = span;
+      };
+
+      renderPhaseText.textContent = 'initializing';
+      renderLog('Initializing multithread FFmpeg from local files...');
+      renderLog(`Local URLs: worker=${classWorkerURL}, core=${coreURL}, wasm=${wasmURL}, threadWorker=${workerURL}`);
+      updateRenderBars(75, null);
+
+      await withTimeout(
+        ffmpeg.load({ classWorkerURL, coreURL, wasmURL, workerURL }),
+        60000,
+        'multicore ffmpeg.load from local files'
+      );
+      updateRenderBars(100, null);
+
+      browserFFmpeg = ffmpeg;
+      browserFFmpegLoaded = true;
+      window.__ffmpegFetchFile = fetchFile;
+      renderLog('Multicore FFmpeg loaded.');
+      return ffmpeg;
+    }
+
+    async function renderInBrowser() {
+      if (!state.file || !state.clips.length) {
+        log('Open a video and create at least one clip before rendering.');
+        return;
+      }
+
+      const jobs = renderJobs();
+      if (!jobs.length) {
+        log('No renderable segments found. Move the timeline cursor or check that clips are longer than 0.08s.');
+        return;
+      }
+
+      const previousText = renderBrowserBtn.textContent;
+      renderBrowserBtn.disabled = true;
+      copyHeaderBtn.disabled = true;
+      downloadRenderLink.classList.add('hidden');
+      downloadRenderLink.removeAttribute('href');
+      resetRenderProgress('Preparing browser render...');
+
+      try {
+        const ffmpeg = await getBrowserFFmpeg();
+        const fetchFile = window.__ffmpegFetchFile;
+        const inputName = state.fileName || 'input.mp4';
+
+        renderPhaseText.textContent = 'preparing';
+        renderBrowserBtn.textContent = 'Preparing...';
+        renderLog('Writing source video into FFmpeg memory...');
+        updateRenderBars(null, 2);
+        try { await ffmpeg.deleteFile(inputName); } catch {}
+        await ffmpeg.writeFile(inputName, await fetchFile(state.file));
+        updateRenderBars(null, 5);
+
+        const segmentSpan = 85 / jobs.length;
+        for (let i = 0; i < jobs.length; i++) {
+          const job = jobs[i];
+          const base = 5 + segmentSpan * i;
+          window.__setFFmpegJobProgress?.(i + 1, jobs.length, base, segmentSpan);
+          renderPhaseText.textContent = `rendering ${i + 1}/${jobs.length}`;
+          renderBrowserBtn.textContent = `Rendering ${i + 1}/${jobs.length}`;
+          renderLog(`Rendering segment ${i + 1}/${jobs.length} (${fmt(job.seg.start)} + ${job.duration.toFixed(3)}s)...`);
+          updateRenderBars(null, base);
+          try { await ffmpeg.deleteFile(job.out); } catch {}
+          const args = ['-y', ...ffmpegArgsForJob(job, inputName)];
+          renderLog('WASM note: testing libx264 with -preset fast. If this crashes, use the no-preset version.');
+          renderLog(`FFmpeg args: ${args.join(' ')}`);
+          try {
+            await ffmpeg.exec(args);
+          } catch (err) {
+            renderLog(`Segment ${i + 1} failed. Args were: ${args.join(' ')}`);
+            throw err;
+          }
+          updateRenderBars(null, base + segmentSpan);
+        }
+
+        renderPhaseText.textContent = 'combining';
+        renderBrowserBtn.textContent = 'Combining...';
+        renderLog('Combining rendered segments...');
+        updateRenderBars(null, 92);
+
+        const concatText = jobs.map(job => `file '${job.out}'`).join('\n') + '\n';
+        await ffmpeg.writeFile('__jump_concat.txt', new TextEncoder().encode(concatText));
+
+        try { await ffmpeg.deleteFile('edited-video.mp4'); } catch {}
+        window.__setFFmpegJobProgress?.(jobs.length, jobs.length, 92, 6);
+        await ffmpeg.exec(['-y', '-f', 'concat', '-safe', '0', '-i', '__jump_concat.txt', '-c', 'copy', 'edited-video.mp4']);
+        updateRenderBars(null, 98);
+
+        renderPhaseText.textContent = 'finalizing';
+        renderLog('Reading finished MP4 from FFmpeg memory...');
+        const data = await ffmpeg.readFile('edited-video.mp4');
+        const blob = new Blob([data.buffer], { type: 'video/mp4' });
+        const url = URL.createObjectURL(blob);
+
+        if (downloadRenderLink.href) URL.revokeObjectURL(downloadRenderLink.href);
+        downloadRenderLink.href = url;
+        downloadRenderLink.classList.remove('hidden');
+
+        updateRenderBars(100, 100);
+        renderPhaseText.textContent = 'done';
+        renderBrowserBtn.textContent = 'Render in browser';
+        renderLog('Done. Click “Download render”.');
+        log('Browser render complete. Click “Download render”.');
+
+        for (const job of jobs) {
+          try { await ffmpeg.deleteFile(job.out); } catch {}
+        }
+        try { await ffmpeg.deleteFile('__jump_concat.txt'); } catch {}
+      } catch (err) {
+        console.error(err);
+        renderPhaseText.textContent = 'failed';
+        renderBrowserBtn.textContent = previousText || 'Render in browser';
+        renderLog(`FAILED: ${err?.message || err}`);
+        log(`Multicore browser render failed: ${err?.message || err}. If this persists, use the copied FFmpeg command. Multicore browser FFmpeg is failing during local worker/core initialization.`);
+      } finally {
+        renderBrowserBtn.disabled = !state.file || !state.clips.length;
+        copyHeaderBtn.disabled = !state.file || !state.clips.length;
+      }
+    }
+
+
+    function generateCommand(showLog = true) {
+      const commandBox = $('commandBox');
+      if (!state.file || !state.clips.length) {
+        commandBox.value = '';
+        copyHeaderBtn.disabled = true;
+      renderBrowserBtn.disabled = true;
+        return '';
+      }
+
+      const input = state.fileName;
+      const parts = [];
+      const commands = [];
+      let i = 0;
+
+      for (const clip of state.clips) {
+        for (const seg of clip.segments) {
+          const out = `__jump_part_${String(i).padStart(4, '0')}.mp4`;
+          parts.push(out);
+          const filterComplex = pipFilterComplex(clip);
+          const base = [
+            'ffmpeg -y',
+            '-ss', sec(seg.start),
+            '-to', sec(seg.end),
+            '-i', shellQuote(input),
+          ];
+          if (filterComplex) base.push('-filter_complex', shellQuote(filterComplex));
+          else base.push('-vf', shellQuote(outputFitFilter(clip.crop)));
+          base.push(
+            '-af', shellQuote('aresample=async=1:first_pts=0'),
+            '-reset_timestamps 1',
+            '-avoid_negative_ts make_zero',
+            renderEncodingCommandString(),
+            '-c:a aac -b:a 160k',
+            shellQuote(out)
+          );
+          commands.push(base.join(' '));
+          i++;
+        }
+      }
+
+      const listText = parts.map(p => `file '${p}'`).join('\n');
+      commands.push(`printf ${shellQuote(listText + '\n')} > __jump_concat.txt`);
+      commands.push(`ffmpeg -y -f concat -safe 0 -i __jump_concat.txt -c copy ${shellQuote('edited-video.mp4')}`);
+      commands.push(`rm -f __jump_part_*.mp4 __jump_concat.txt`);
+
+      commandBox.value = commands.join(' && \\\n');
+      copyHeaderBtn.disabled = false;
+      $('renderStats').textContent = `${parts.length} segment${parts.length === 1 ? '' : 's'}`;
+      if (showLog) log('Command generated and ready to copy.');
+      return commandBox.value;
+    }
+
+    function updateUi() {
+      const total = state.appliedSilence ? timelineDuration() : state.duration;
+      $('timeReadout').textContent = `${fmt(state.cursor)} / ${fmt(total)}`;
+      $('timelineTitle').textContent = state.appliedSilence ? 'Step 2 timeline — silences removed, clips editable' : 'Step 1 timeline — red areas are detected silence';
+      copyHeaderBtn.disabled = !state.file || !state.clips.length;
+      renderBrowserBtn.disabled = !state.file || !state.clips.length;
+      loadCropSliders();
+      loadPipSliders();
+      updateCropOverlay();
+      updatePipPreview();
+      updatePipPlacementStage();
+    }
+
+    function resetAll(clearFile = true) {
+      if (state.objectUrl) URL.revokeObjectURL(state.objectUrl);
+      const keepFile = clearFile ? null : state.file;
+      const keepName = clearFile ? 'input.mp4' : state.fileName;
+      Object.assign(state, {
+        file: keepFile,
+        fileName: keepName,
+        objectUrl: '', duration: 0, peaks: [], silent: [], keep: [], appliedSilence: false,
+        clips: [], selectedClip: 0, cursor: 0, playingTimeline: false, suppressNativeTimeUpdate: false,
+        previewRunId: state.previewRunId + 1, activeTimelineItem: null, nextClipNumber: 1, pipEditMode: false, allowOutOfBoundsCrop: false, advancedCropOpen: false
+      });
+      if (clearFile) {
+        fileInput.value = '';
+        openVideoOverlay.classList.remove('hidden');
+        video.removeAttribute('src'); video.load();
+        pipVideo.removeAttribute('src'); pipVideo.load();
+        pipPlacementMainVideo.removeAttribute('src'); pipPlacementMainVideo.load();
+        pipPlacementPipVideo.removeAttribute('src'); pipPlacementPipVideo.load();
+      }
+      $('step1').className = 'step active'; $('step1').classList.remove('hidden'); $('step2').className = 'step'; $('step3').className = 'step';
+      $('silenceStats').textContent = 'waiting'; $('clipStats').textContent = '0 clips'; $('renderStats').textContent = 'idle';
+      $('applySilenceBtn').disabled = true; $('commandBox').value = ''; copyHeaderBtn.disabled = true; renderBrowserBtn.disabled = true; downloadRenderLink.classList.add('hidden'); downloadRenderLink.removeAttribute('href'); renderProgressPanel.classList.add('hidden'); resetRenderProgress('Waiting.');
+        renderBrowserBtn.disabled = true;
+      cropOverlay.style.display = 'none'; pipPreview.style.display = 'none'; resetViewerPadding(); clipStrip.innerHTML = ''; ctx.clearRect(0,0,canvas.width,canvas.height);
+      log(clearFile ? 'Open a video to begin.' : 'Resetting...');
+      updateUi();
+    }
+  </script>
+</body>
+</html>
