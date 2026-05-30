@@ -39,6 +39,7 @@
 <img src="/preview-images/silence.jpg" alt="Silence detection preview" height="420">
 
 <img src="/preview-images/render.jpg" alt="Render preview" height="420">
+* It even estimates the final video size! *(When using Constant Bitrate)*
 
 
 ## 💬 Reasonings
