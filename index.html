@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Single-file Jump Cut Video Editor</title>
+  <title>PatrikZero's Clip Editor</title>
   <style>
     :root {
       --bg: #f6f7fb;
@@ -23,14 +23,22 @@
     }
 
     * { box-sizing: border-box; }
+    html {
+      min-height: 100%;
+      background: #eef2f7;
+    }
     body {
       margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--ink);
       background: radial-gradient(circle at top, #fff 0, var(--bg) 45%, #eef2f7 100%);
+      background-attachment: fixed;
     }
 
-    main { width: min(1500px, calc(100vw - 24px)); margin: 12px auto 24px; }
+    main { width: min(1500px, calc(100vw - 24px)); margin: 12px auto 24px; flex: 1 0 auto; }
 
     .grid {
       display: grid;
@@ -222,6 +230,14 @@
     .step.active { border-color: #93c5fd; background: #eff6ff; }
     .step.done { border-color: #bbf7d0; background: #f0fdf4; }
     .stepTitle { display: flex; align-items: center; justify-content: space-between; font-weight: 800; }
+
+    .miniToggle {
+      padding: 5px 9px;
+      font-size: 12px;
+      line-height: 1;
+      border-radius: 999px;
+      margin-left: 8px;
+    }
     label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
     input[type=range], input[type=number], select { width: 100%; }
     input[type=number], select {
@@ -414,7 +430,7 @@
       font-size: 12px;
       background: #f8fafc;
     }
-    .ratioButtons button.active, #pipToggle.active, #cropBoundsToggle.active, #advancedCropToggle.active {
+    .ratioButtons button.active, #pipToggle.active, #cropBoundsToggle.active, #advancedCropToggle.active, #renderGuidesToggle.active {
       background: #16a34a;
       border-color: #16a34a;
       color: white;
@@ -435,17 +451,12 @@
     .renderPreviewCard .stepTitle {
       margin-bottom: 8px;
     }
-    #renderPreviewStatus {
-      color: #2563eb;
-      font-size: 12px;
-      font-weight: 800;
-    }
     .pipPlacementStage {
       position: relative;
       width: 100%;
       aspect-ratio: 16 / 9;
       margin: 8px 0 6px;
-      border-radius: 12px;
+      border-radius: 0;
       border: 1px solid #bfdbfe;
       background:
         linear-gradient(90deg, rgba(255,255,255,.12) 1px, transparent 1px),
@@ -465,10 +476,13 @@
     .pipPlacementMain {
       position: absolute;
       overflow: hidden;
-      border: 1px solid rgba(255,255,255,.42);
+      border: 2px solid rgba(37, 99, 235, .98);
       background: #020617;
       color: rgba(255,255,255,.8);
-      pointer-events: none;
+      pointer-events: auto;
+      cursor: move;
+      user-select: none;
+      touch-action: none;
       z-index: 1;
     }
     .pipPlacementMain video,
@@ -493,13 +507,37 @@
       color: #166534;
       font-size: 11px;
       font-weight: 900;
-      border-radius: 8px;
+      border-radius: 0;
       cursor: move;
       user-select: none;
       box-shadow: 0 8px 18px rgba(15, 23, 42, .16);
       touch-action: none;
       z-index: 4;
     }
+
+    .pipPlacementStage.guidesOff {
+      border-color: transparent;
+      background: #0f172a;
+      background-size: auto;
+    }
+    .pipPlacementStage.guidesOff .pipPlacementGrid,
+    .pipPlacementStage.guidesOff .pipPlacementLabel,
+    .pipPlacementStage.guidesOff .pipPlacementResizeHandle {
+      display: none !important;
+    }
+    .pipPlacementStage.guidesOff .pipPlacementMain,
+    .pipPlacementStage.guidesOff .pipPlacementBox {
+      border-color: transparent !important;
+      box-shadow: none !important;
+      background: transparent !important;
+      outline: none !important;
+    }
+    .pipPlacementStage.guidesOff .pipPlacementMain video,
+    .pipPlacementStage.guidesOff .pipPlacementBox video {
+      box-shadow: none !important;
+      outline: none !important;
+    }
+
     .pipPlacementLabel {
       position: absolute;
       left: 7px;
@@ -551,6 +589,109 @@
 
     .small { font-size: 12px; color: var(--muted); line-height: 1.45; }
 
+    .brandHeader {
+      width: min(1500px, calc(100vw - 24px));
+      margin: 12px auto 0;
+      padding: 8px 0 2px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .brandHeader a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 700;
+    }
+    .brandHeader a:hover { text-decoration: underline; }
+
+
+    .customResPanel {
+      margin-top: 8px;
+    }
+
+
+    .renderPreviewSettings .ratioButtons {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+      align-items: stretch;
+    }
+    .renderPreviewSettings .ratioButtons button {
+      width: 100%;
+      min-width: 0;
+      padding: 7px 5px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .renderPreviewSettings {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed #bfdbfe;
+    }
+    .renderPreviewSettings label:first-child {
+      margin-top: 4px;
+      font-weight: 800;
+      color: var(--ink);
+    }
+    .renderLaunchBtn {
+      width: 100%;
+      display: block;
+      margin: 10px 0;
+      padding: 15px 16px;
+      border-radius: 16px;
+      font-size: 18px;
+      letter-spacing: .04em;
+      box-shadow: 0 12px 28px rgba(22, 163, 74, .18);
+    }
+    .modalOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background: rgba(15, 23, 42, .46);
+      backdrop-filter: blur(6px);
+    }
+    .modalCard {
+      width: min(560px, calc(100vw - 24px));
+      max-height: calc(100vh - 36px);
+      overflow: auto;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      box-shadow: 0 24px 80px rgba(15, 23, 42, .28);
+      padding: 14px;
+    }
+    .modalHeader {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 4px 4px 10px;
+    }
+    .modalHeader h2 {
+      margin: 0;
+      font-size: 18px;
+    }
+    .modalHeader button {
+      width: 38px;
+      height: 38px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      font-size: 22px;
+      line-height: 1;
+    }
+    .modalCard #step3 {
+      margin-bottom: 0;
+      box-shadow: none;
+    }
+
+
+
     @media (max-width: 980px) {
       .grid { grid-template-columns: 1fr; }
       video#video { max-height: 48vh; }
@@ -558,6 +699,8 @@
   </style>
 </head>
 <body>
+  <header class="brandHeader">PatrikZero's Clip Editor by <a href="https://patrikzudel.me/" target="_blank" rel="noopener noreferrer">patrikzudel.me</a></header>
+
 
   <main>
     <div class="grid">
@@ -592,13 +735,27 @@
       <aside class="card">
         <h2>Workflow</h2>
         <div class="step renderPreviewCard" id="renderPreviewCard">
-<div class="stepTitle">Render Preview <span id="renderPreviewStatus">live</span></div>
-            <div class="pipPlacementStage" id="pipPlacementStage" title="Drag the green box to position PIP in the final render frame">
+<div class="stepTitle">Render Preview <button id="renderGuidesToggle" type="button" class="miniToggle active" title="Show or hide render preview guides.">Guides on</button></div>
+            <div class="pipPlacementStage" id="pipPlacementStage" title="Drag the main layer or green PIP layer inside the final render frame">
               <div class="pipPlacementMain" id="pipPlacementMain"><video id="pipPlacementMainVideo" muted playsinline></video></div>
               <div class="pipPlacementGrid"></div>
               <div class="pipPlacementBox" id="pipPlacementBox"><video id="pipPlacementPipVideo" muted playsinline></video><span class="pipPlacementLabel">PIP placement</span><div class="pipPlacementResizeHandle" id="pipPlacementResizeHandle" title="Resize PIP placement"></div></div>
             </div>
-            <p class="small">Preview the final frame.</p>
+<div class="renderPreviewSettings">
+              <label>Render size</label>
+              <div class="ratioButtons">
+                <button id="res1080" type="button" title="Set render resolution to 1920×1080.">1920×1080</button>
+                <button id="res720" class="active" type="button" title="Set render resolution to 1280×720.">1280×720</button>
+                <button id="resVertical" type="button" title="Set render resolution to vertical 1080×1920.">1080×1920</button>
+                <button id="customResToggle" type="button" title="Show custom render width and height.">Custom</button>
+              </div>
+              <div id="customResPanel" class="customResPanel hidden">
+                <div class="row">
+                  <div><label>Width</label><input id="renderW" title="Final output width in pixels." type="number" min="160" step="2" value="1280"></div>
+                  <div><label>Height</label><input id="renderH" title="Final output height in pixels." type="number" min="160" step="2" value="720"></div>
+                </div>
+              </div>
+            </div>
         </div>
 
         <div class="step active" id="step1">
@@ -620,6 +777,7 @@
             <button id="ratio169" type="button" title="Set the selected clip crop to 16:9.">16:9</button>
             <button id="ratio43" type="button" title="Set the selected clip crop to 4:3.">4:3</button>
             <button id="ratio916" type="button" title="Set the selected clip crop to 9:16 vertical.">9:16</button>
+            <button id="ratio144175" type="button" title="Set the selected clip crop to 144:175, the lower area under a full-width 16:9 video in a 9:16 frame.">144:175</button>
             <button id="cropBoundsToggle" type="button" title="Allows the crop to leave the source; missing areas render black.">Allow outside of bounds</button>
             <button id="advancedCropToggle" type="button" title="Show precise crop sliders for the selected clip.">Advanced crop</button>
             <button id="pipToggle" type="button" title="Enable or disable Picture-in-Picture for the selected clip.">PIP mode</button>
@@ -635,16 +793,17 @@
           <div id="pipPanel" class="pipPanel">
             <div class="stepTitle">Picture in Picture <span id="pipStatus">off</span></div>
                         <div class="placementButtons">
-              <button id="pipCenterH" type="button" title="Center the PIP layer horizontally inside the main crop.">Center horizontally</button>
-              <button id="pipCenterV" type="button" title="Center the PIP layer vertically inside the main crop.">Center vertically</button>
-              <button id="pipFitW" type="button" title="Resize the PIP layer to fit the main crop width.">Fit to width</button>
-              <button id="pipFitH" type="button" title="Resize the PIP layer to fit the main crop height.">Fit to height</button>
+              <button id="pipCenterH" type="button" title="Center the PIP layer horizontally inside the final frame.">Center horizontally</button>
+              <button id="pipCenterV" type="button" title="Center the PIP layer vertically inside the final frame.">Center vertically</button>
+              <button id="pipFitW" type="button" title="Resize the PIP layer to fit the final frame width.">Fit to width</button>
+              <button id="pipFitH" type="button" title="Resize the PIP layer to fit the final frame height.">Fit to height</button>
             </div>
             <label>PIP Source crop preset</label>
             <div class="ratioButtons">
               <button id="pipCrop169" type="button" title="Set the PIP source crop to 16:9.">16:9</button>
               <button id="pipCrop43" type="button" title="Set the PIP source crop to 4:3.">4:3</button>
               <button id="pipCrop916" type="button" title="Set the PIP source crop to 9:16.">9:16</button>
+              <button id="pipCrop144175" type="button" title="Set the PIP source crop to 144:175.">144:175</button>
             </div>
             <div id="pipAdvancedCrop" class="advancedCropPanel">
               <div class="row">
@@ -660,18 +819,23 @@
           </div>
         </div>
 
-        <div class="step" id="step3">
-          <div class="stepTitle">3. Render settings <span id="renderStats">idle</span></div>
-          <p class="small">Set final size, speed preset, and either CRF quality or manual bitrate with estimated file size.</p>
-          <div class="row">
-            <div><label>Render width</label><input id="renderW" title="Final output width in pixels." type="number" min="160" step="2" value="1920"></div>
-            <div><label>Render height</label><input id="renderH" title="Final output height in pixels." type="number" min="160" step="2" value="1080"></div>
-          </div>
-          <div class="ratioButtons">
-            <button id="res1080" type="button" title="Set render resolution to 1920×1080.">1920×1080</button>
-            <button id="res720" type="button" title="Set render resolution to 1280×720.">1280×720</button>
-            <button id="resVertical" type="button" title="Set render resolution to vertical 1080×1920.">1080×1920</button>
-          </div>
+        <button id="openRenderModalBtn" class="renderLaunchBtn green" type="button" title="Open render settings">RENDER</button>
+        <div class="status hidden" id="status">Open a video to begin.</div>
+      </aside>
+    </div>
+  </main>
+
+
+  <div id="renderModal" class="modalOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="renderModalTitle">
+    <div class="modalCard">
+      <div class="modalHeader">
+        <h2 id="renderModalTitle">Render settings</h2>
+        <button id="closeRenderModalBtn" type="button" title="Close render settings">×</button>
+      </div>
+      <div class="step" id="step3">
+          <div class="stepTitle">Render settings <span id="renderStats">idle</span></div>
+          <p class="small">Choose speed preset and either CRF quality or manual bitrate.</p>
+
           <label>Quality / Speed</label>
           <select id="x264Preset" title="Controls render speed vs compression. Faster presets render quicker but create larger files.">
             <option value="ultrafast">Ultrafast — fastest, largest file</option>
@@ -698,7 +862,6 @@
               <option value="32">CRF 32 — very small draft</option>
               <option value="36">CRF 36 — very low quality / strict limit draft</option>
             </select>
-            <p class="small">CRF file size is not predictable exactly, but lower values are larger and higher values are smaller.</p>
           </div>
 
           <div id="bitratePanel" class="hidden">
@@ -726,13 +889,10 @@
             <button id="renderBrowserBtn" class="green" disabled title="Render directly in this browser using multithreaded FFmpeg WebAssembly. Requires COOP/COEP headers.">Render in browser</button>
             <a id="downloadRenderLink" class="fileButton hidden" download="edited-video.mp4">Download render</a>
           </div>
-        </div>
-        <div class="status hidden" id="status">Open a video to begin.</div>
-      </aside>
+      </div>
     </div>
-  </main>
-
-  <script>
+  </div>
+<script>
     const $ = (id) => document.getElementById(id);
     const fileInput = $('fileInput');
     const openVideoOverlay = $('openVideoOverlay');
@@ -785,6 +945,8 @@
       pipEditMode: false,
       allowOutOfBoundsCrop: false,
       advancedCropOpen: false,
+      renderGuidesOn: true,
+      customResOpen: false,
     };
 
     let browserFFmpeg = null;
@@ -826,7 +988,7 @@
       log('Decoding audio and drawing waveform...');
       await decodeWaveform(file);
       state.keep = [{ start: 0, end: state.duration }];
-      state.clips = [{ id: crypto.randomUUID(), label: allocateClipLabel(), segments: [{ start: 0, end: state.duration }], crop: defaultCrop(), pip: defaultPip() }];
+      state.clips = [{ id: crypto.randomUUID(), label: allocateClipLabel(), segments: [{ start: 0, end: state.duration }], crop: defaultCrop(), pip: defaultPip(), mainFrame: defaultMainFrame() }];
       state.cursor = 0;
       syncPreviewToTimeline();
       draw();
@@ -892,7 +1054,7 @@
     function applySilenceAsOneClip() {
       if (!state.keep.length) return;
       state.appliedSilence = true;
-      state.clips = [{ id: crypto.randomUUID(), label: allocateClipLabel(), segments: structuredClone(state.keep), crop: defaultCrop(), pip: defaultPip() }];
+      state.clips = [{ id: crypto.randomUUID(), label: allocateClipLabel(), segments: structuredClone(state.keep), crop: defaultCrop(), pip: defaultPip(), mainFrame: defaultMainFrame() }];
       state.selectedClip = 0;
       state.cursor = 0;
       $('step1').classList.remove('active'); $('step1').classList.add('done'); $('step1').classList.add('hidden');
@@ -927,7 +1089,10 @@
       return out.filter(r => r.end - r.start > 0.035);
     }
 
-    function defaultCrop() { return { x: 0, y: 0, w: 100, h: 100 }; }
+    function defaultCrop() {
+      // Default to a visible 16:9 crop instead of an invisible full-frame crop.
+      return sourceRatioCrop(16, 9);
+    }
 
     function sourceRatioCrop(ratioW, ratioH) {
       const targetAspect = ratioW / ratioH;
@@ -953,6 +1118,17 @@
       if (!clip.pip.crop) clip.pip.crop = defaultPip().crop;
       if (!clip.pip.frame) clip.pip.frame = defaultPip().frame;
       return clip.pip;
+    }
+
+    function defaultMainFrame() {
+      // x/y are top-left percentages of the final render frame.
+      // null means "use centered default for the current crop/render aspect".
+      return { x: null, y: null };
+    }
+
+    function ensureMainFrame(clip) {
+      if (!clip.mainFrame) clip.mainFrame = defaultMainFrame();
+      return clip.mainFrame;
     }
     function allocateClipLabel() { return `Clip ${state.nextClipNumber++}`; }
     function clipDuration(clip) { return clip.segments.reduce((s, r) => s + r.end - r.start, 0); }
@@ -1125,8 +1301,8 @@
           localAcc += sd;
         }
         const newClips = [];
-        if (left.length) newClips.push({ id: crypto.randomUUID(), label: clip.label, segments: left, crop: structuredClone(clip.crop), pip: structuredClone(ensurePip(clip)) });
-        if (right.length) newClips.push({ id: crypto.randomUUID(), label: allocateClipLabel(), segments: right, crop: structuredClone(clip.crop), pip: structuredClone(ensurePip(clip)) });
+        if (left.length) newClips.push({ id: crypto.randomUUID(), label: clip.label, segments: left, crop: structuredClone(clip.crop), pip: structuredClone(ensurePip(clip)), mainFrame: structuredClone(ensureMainFrame(clip)) });
+        if (right.length) newClips.push({ id: crypto.randomUUID(), label: allocateClipLabel(), segments: right, crop: structuredClone(clip.crop), pip: structuredClone(ensurePip(clip)), mainFrame: structuredClone(ensureMainFrame(clip)) });
         state.clips.splice(ci, 1, ...newClips);
         state.selectedClip = Math.min(ci + 1, state.clips.length - 1);
         afterTimelineEdit(`Split at ${fmt(t)}. Preview is now positioned at the beginning of the new right-side clip.`);
@@ -1287,6 +1463,7 @@
         label: current.label,
         crop: structuredClone(current.crop),
         pip: structuredClone(ensurePip(current)),
+        mainFrame: structuredClone(ensureMainFrame(current)),
         segments: direction === 'left'
           ? [...structuredClone(neighbor.segments), ...structuredClone(current.segments)]
           : [...structuredClone(current.segments), ...structuredClone(neighbor.segments)],
@@ -1330,6 +1507,8 @@
       const tag = document.activeElement.tagName;
       const isTyping = ['INPUT','TEXTAREA','SELECT'].includes(tag) || document.activeElement.isContentEditable;
       if (isTyping) return;
+
+      if (e.key === 'Escape' && !$('renderModal').classList.contains('hidden')) { closeRenderModal(); return; }
 
       if (e.key.toLowerCase() === 's') {
         e.preventDefault();
@@ -1608,8 +1787,8 @@
       updateViewerPaddingForCrop(c);
 
       if (c.x === 0 && c.y === 0 && c.w === 100 && c.h === 100) {
-        cropOverlay.style.display = 'none';
-        return;
+        // Still show the 16:9 default crop outline so the crop state is visible.
+        // Users can hide/alter it by choosing another crop or disabling advanced crop behavior.
       }
 
       const vr = video.getBoundingClientRect();
@@ -1645,6 +1824,33 @@
     }
 
 
+    function mainLayerSizePct(clip) {
+      const render = renderSize();
+      const sourceAspect = sourceAspectRatio();
+      const outputAspect = render.w / render.h;
+      const mainCropAspect = Math.max(0.05, (clip.crop.w * sourceAspect) / Math.max(0.001, clip.crop.h));
+
+      if (mainCropAspect > outputAspect) {
+        return { w: 100, h: (outputAspect / mainCropAspect) * 100 };
+      }
+      return { w: (mainCropAspect / outputAspect) * 100, h: 100 };
+    }
+
+    function mainLayerDefaultFrame(clip) {
+      const size = mainLayerSizePct(clip);
+      return { x: (100 - size.w) / 2, y: (100 - size.h) / 2, w: size.w, h: size.h };
+    }
+
+    function clampMainFrameToRender(clip) {
+      const frame = ensureMainFrame(clip);
+      const size = mainLayerSizePct(clip);
+      const fallback = mainLayerDefaultFrame(clip);
+
+      frame.x = clamp(Number.isFinite(Number(frame.x)) ? Number(frame.x) : fallback.x, 0, Math.max(0, 100 - size.w));
+      frame.y = clamp(Number.isFinite(Number(frame.y)) ? Number(frame.y) : fallback.y, 0, Math.max(0, 100 - size.h));
+      return { x: frame.x, y: frame.y, w: size.w, h: size.h };
+    }
+
     function renderPreviewMetrics(clip, stageRect = null) {
       const render = renderSize();
       const sourceAspect = sourceAspectRatio();
@@ -1660,20 +1866,17 @@
         boxH = render.h;
       }
 
-      let mainW = boxW;
-      let mainH = mainW / mainCropAspect;
-      if (mainH > boxH) {
-        mainH = boxH;
-        mainW = mainH * mainCropAspect;
-      }
+      const frame = clampMainFrameToRender(clip);
+      const mainW = boxW * frame.w / 100;
+      const mainH = boxH * frame.h / 100;
 
       return {
         render,
         sourceAspect,
         outputAspect,
         mainCropAspect,
-        mainX: (boxW - mainW) / 2,
-        mainY: (boxH - mainH) / 2,
+        mainX: boxW * frame.x / 100,
+        mainY: boxH * frame.y / 100,
         mainW,
         mainH,
         boxW,
@@ -1686,16 +1889,10 @@
     }
 
     function normalizedPlacementBounds(clip) {
-      // PIP placement is stored in final render percent coordinates, but it is
-      // constrained to the rendered main crop area so it cannot enter black bars
-      // or leave the visible main video.
-      const metrics = renderPreviewMetrics(clip);
-      return {
-        x: metrics.mainX / metrics.boxW * 100,
-        y: metrics.mainY / metrics.boxH * 100,
-        w: metrics.mainW / metrics.boxW * 100,
-        h: metrics.mainH / metrics.boxH * 100,
-      };
+      // PIP placement is stored in final render percent coordinates.
+      // It can now use the entire output frame, including black-bar areas
+      // outside the main video crop.
+      return { x: 0, y: 0, w: 100, h: 100 };
     }
 
     function placementHeightPctFromWidth(clip, pip, widthPct) {
@@ -1790,6 +1987,12 @@
       const pip = ensurePip(clip);
       const render = renderSize();
       pipPlacementStage.style.aspectRatio = `${render.w} / ${render.h}`;
+      pipPlacementStage.classList.toggle('guidesOff', !state.renderGuidesOn);
+      const guidesBtn = $('renderGuidesToggle');
+      if (guidesBtn) {
+        guidesBtn.classList.toggle('active', state.renderGuidesOn);
+        guidesBtn.textContent = state.renderGuidesOn ? 'Guides on' : 'Guides off';
+      }
       pipPlacementBox.style.display = pip.enabled ? 'block' : 'none';
       pipPlacementMain.style.display = 'block';
 
@@ -1977,6 +2180,48 @@
       log(`PIP source crop updated for ${state.clips[state.selectedClip]?.label || 'selected clip'}.`);
     });
     pipPreview.addEventListener('pointercancel', () => { pipDrag = null; });
+
+    let mainPlacementDrag = null;
+
+    if (pipPlacementStage && pipPlacementMain) {
+      pipPlacementMain.addEventListener('pointerdown', (e) => {
+        const clip = state.clips[state.selectedClip];
+        if (!clip) return;
+        e.preventDefault();
+        e.stopPropagation();
+        pipPlacementMain.setPointerCapture(e.pointerId);
+        mainPlacementDrag = {
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          startFrame: { ...clampMainFrameToRender(clip) },
+        };
+      });
+
+      pipPlacementMain.addEventListener('pointermove', (e) => {
+        if (!mainPlacementDrag || e.pointerId !== mainPlacementDrag.pointerId) return;
+        const clip = state.clips[state.selectedClip];
+        if (!clip) return;
+        const rect = pipPlacementStage.getBoundingClientRect();
+        const dxPct = ((e.clientX - mainPlacementDrag.startX) / Math.max(1, rect.width)) * 100;
+        const dyPct = ((e.clientY - mainPlacementDrag.startY) / Math.max(1, rect.height)) * 100;
+        const frame = ensureMainFrame(clip);
+        frame.x = mainPlacementDrag.startFrame.x + dxPct;
+        frame.y = mainPlacementDrag.startFrame.y + dyPct;
+        clampMainFrameToRender(clip);
+        updatePipPlacementStage();
+        updatePipPreview();
+        generateCommand(false);
+      });
+
+      pipPlacementMain.addEventListener('pointerup', (e) => {
+        if (!mainPlacementDrag || e.pointerId !== mainPlacementDrag.pointerId) return;
+        mainPlacementDrag = null;
+        log(`Main render position updated for ${state.clips[state.selectedClip]?.label || 'selected clip'}.`);
+      });
+
+      pipPlacementMain.addEventListener('pointercancel', () => { mainPlacementDrag = null; });
+    }
 
     let pipPlacementDrag = null;
 
@@ -2217,15 +2462,53 @@
     $('ratio169').addEventListener('click', () => applyCropRatio(16, 9));
     $('ratio43').addEventListener('click', () => applyCropRatio(4, 3));
     $('ratio916').addEventListener('click', () => applyCropRatio(9, 16));
+    $('ratio144175').addEventListener('click', () => applyCropRatio(144, 175));
     $('res1080').addEventListener('click', () => setRenderSize(1920, 1080));
     $('res720').addEventListener('click', () => setRenderSize(1280, 720));
     $('resVertical').addEventListener('click', () => setRenderSize(1080, 1920));
-    $('renderW').addEventListener('input', () => { updatePipPlacementStage(); updatePipPreview(); updateBitrateEstimate(); generateCommand(false); });
-    $('renderH').addEventListener('input', () => { updatePipPlacementStage(); updatePipPreview(); updateBitrateEstimate(); generateCommand(false); });
+    $('renderW').addEventListener('input', () => { updateRenderPresetButtons(); updatePipPlacementStage(); updatePipPreview(); updateBitrateEstimate(); generateCommand(false); });
+    $('renderH').addEventListener('input', () => { updateRenderPresetButtons(); updatePipPlacementStage(); updatePipPreview(); updateBitrateEstimate(); generateCommand(false); });
     $('x264Preset').addEventListener('change', () => { generateCommand(false); updateBitrateEstimate(); log(`Quality/Speed preset set to ${$('x264Preset').value}.`); });
     $('rateMode').addEventListener('change', () => { updateRateControlUi(); generateCommand(false); log(`Encoding mode set to ${$('rateMode').value === 'bitrate' ? 'manual bitrate' : 'CRF quality'}.`); });
     $('crfValue').addEventListener('change', () => { generateCommand(false); log(`CRF set to ${$('crfValue').value}.`); });
     $('videoBitrate').addEventListener('input', () => { updateBitrateEstimate(); generateCommand(false); });
+    function updateCustomResUi() {
+      const panel = $('customResPanel');
+      const btn = $('customResToggle');
+      if (!panel || !btn) return;
+      panel.classList.toggle('hidden', !state.customResOpen);
+      btn.classList.toggle('active', state.customResOpen);
+      btn.textContent = state.customResOpen ? 'Hide custom' : 'Custom';
+    }
+
+    function openRenderModal() {
+      $('renderModal').classList.remove('hidden');
+      generateCommand(false);
+      updateBitrateEstimate();
+    }
+
+    function closeRenderModal() {
+      $('renderModal').classList.add('hidden');
+    }
+
+    $('openRenderModalBtn').addEventListener('click', openRenderModal);
+    $('closeRenderModalBtn').addEventListener('click', closeRenderModal);
+    $('renderModal').addEventListener('click', (e) => {
+      if (e.target.id === 'renderModal') closeRenderModal();
+    });
+
+    $('customResToggle').addEventListener('click', () => {
+      state.customResOpen = !state.customResOpen;
+      updateCustomResUi();
+      log(state.customResOpen ? 'Custom render size shown.' : 'Custom render size hidden.');
+    });
+
+    $('renderGuidesToggle').addEventListener('click', () => {
+      state.renderGuidesOn = !state.renderGuidesOn;
+      updatePipPlacementStage();
+      log(state.renderGuidesOn ? 'Render preview guides shown.' : 'Render preview guides hidden.');
+    });
+
     $('pipToggle').addEventListener('click', () => {
       const clip = state.clips[state.selectedClip];
       if (!clip) {
@@ -2249,6 +2532,7 @@
     $('pipCrop169').addEventListener('click', () => applyPipCropRatio(16, 9));
     $('pipCrop43').addEventListener('click', () => applyPipCropRatio(4, 3));
     $('pipCrop916').addEventListener('click', () => applyPipCropRatio(9, 16));
+    $('pipCrop144175').addEventListener('click', () => applyPipCropRatio(144, 175));
     $('pipCenterH').addEventListener('click', () => nudgePipPlacement('centerH'));
     $('pipCenterV').addEventListener('click', () => nudgePipPlacement('centerV'));
     $('pipFitW').addEventListener('click', () => nudgePipPlacement('fitW'));
@@ -2315,30 +2599,41 @@
 
     function renderSize() {
       return {
-        w: evenNumber($('renderW').value, 1920),
-        h: evenNumber($('renderH').value, 1080),
+        w: evenNumber($('renderW').value, 1280),
+        h: evenNumber($('renderH').value, 720),
       };
     }
 
-    function mainBaseFilter(c, labelOut = 'main') {
+    function mainLayerRenderPixels(clip) {
       const { w, h } = renderSize();
+      const frame = clampMainFrameToRender(clip);
+      return {
+        x: Math.max(0, Math.floor((w * frame.x / 100) / 2) * 2),
+        y: Math.max(0, Math.floor((h * frame.y / 100) / 2) * 2),
+      };
+    }
+
+    function mainBaseFilter(clip, labelOut = 'main') {
+      const { w, h } = renderSize();
+      const pos = mainLayerRenderPixels(clip);
       const filters = [];
-      const crop = cropExpr(c);
+      const crop = cropExpr(clip.crop);
       if (crop) filters.push(crop);
       filters.push(`scale=${w}:${h}:force_original_aspect_ratio=decrease`);
-      filters.push(`pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:black`);
+      filters.push(`pad=${w}:${h}:${pos.x}:${pos.y}:black`);
       filters.push('setsar=1');
       filters.push('format=yuv420p');
       return filters.join(',') + `[${labelOut}]`;
     }
 
-    function outputFitFilter(c) {
+    function outputFitFilter(clip) {
       const { w, h } = renderSize();
+      const pos = mainLayerRenderPixels(clip);
       const filters = [];
-      const crop = cropExpr(c);
+      const crop = cropExpr(clip.crop);
       if (crop) filters.push(crop);
       filters.push(`scale=${w}:${h}:force_original_aspect_ratio=decrease`);
-      filters.push(`pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:black`);
+      filters.push(`pad=${w}:${h}:${pos.x}:${pos.y}:black`);
       filters.push('setsar=1');
       filters.push('format=yuv420p');
       return filters.join(',');
@@ -2366,7 +2661,7 @@
         'format=yuv420p'
       ].filter(Boolean).join(',');
 
-      return `[0:v]${mainBaseFilter(clip.crop, 'base')};[0:v]${pipChain}[pip];[base][pip]overlay=${xPx}:${yPx}:format=auto,format=yuv420p`;
+      return `[0:v]${mainBaseFilter(clip, 'base')};[0:v]${pipChain}[pip];[base][pip]overlay=${xPx}:${yPx}:format=auto,format=yuv420p`;
     }
 
     function sourceAspectRatio() {
@@ -2435,10 +2730,22 @@
     function setRenderSize(w, h) {
       $('renderW').value = w;
       $('renderH').value = h;
+      updateRenderPresetButtons();
       updatePipPlacementStage();
       updatePipPreview();
       generateCommand(false);
       log(`Render resolution set to ${w}×${h}.`);
+    }
+
+    function updateRenderPresetButtons() {
+      const w = Number($('renderW').value);
+      const h = Number($('renderH').value);
+      const matches = {
+        res1080: w === 1920 && h === 1080,
+        res720: w === 1280 && h === 720,
+        resVertical: w === 1080 && h === 1920,
+      };
+      ['res1080', 'res720', 'resVertical'].forEach(id => $(id)?.classList.toggle('active', !!matches[id]));
     }
 
 
@@ -2639,7 +2946,7 @@
       ];
 
       if (filterComplex) args.push('-filter_complex', filterComplex);
-      else args.push('-vf', outputFitFilter(job.clip.crop));
+      else args.push('-vf', outputFitFilter(job.clip));
 
       args.push(
         '-af', 'aresample=async=1:first_pts=0',
@@ -2883,7 +3190,7 @@
             '-i', shellQuote(input),
           ];
           if (filterComplex) base.push('-filter_complex', shellQuote(filterComplex));
-          else base.push('-vf', shellQuote(outputFitFilter(clip.crop)));
+          else base.push('-vf', shellQuote(outputFitFilter(clip)));
           base.push(
             '-af', shellQuote('aresample=async=1:first_pts=0'),
             '-reset_timestamps 1',
@@ -2920,6 +3227,8 @@
       updateCropOverlay();
       updatePipPreview();
       updatePipPlacementStage();
+      updateCustomResUi();
+      updateRenderPresetButtons();
     }
 
     function resetAll(clearFile = true) {
@@ -2931,7 +3240,7 @@
         fileName: keepName,
         objectUrl: '', duration: 0, peaks: [], silent: [], keep: [], appliedSilence: false,
         clips: [], selectedClip: 0, cursor: 0, playingTimeline: false, suppressNativeTimeUpdate: false,
-        previewRunId: state.previewRunId + 1, activeTimelineItem: null, nextClipNumber: 1, pipEditMode: false, allowOutOfBoundsCrop: false, advancedCropOpen: false
+        previewRunId: state.previewRunId + 1, activeTimelineItem: null, nextClipNumber: 1, pipEditMode: false, allowOutOfBoundsCrop: false, advancedCropOpen: false, renderGuidesOn: true, customResOpen: false
       });
       if (clearFile) {
         fileInput.value = '';
@@ -2941,7 +3250,7 @@
         pipPlacementMainVideo.removeAttribute('src'); pipPlacementMainVideo.load();
         pipPlacementPipVideo.removeAttribute('src'); pipPlacementPipVideo.load();
       }
-      $('step1').className = 'step active'; $('step1').classList.remove('hidden'); $('step2').className = 'step'; $('step3').className = 'step';
+      $('step1').className = 'step active'; $('step1').classList.remove('hidden'); $('step2').className = 'step'; $('step3').className = 'step'; closeRenderModal();
       $('silenceStats').textContent = 'waiting'; $('clipStats').textContent = '0 clips'; $('renderStats').textContent = 'idle';
       $('applySilenceBtn').disabled = true; $('commandBox').value = ''; copyHeaderBtn.disabled = true; renderBrowserBtn.disabled = true; downloadRenderLink.classList.add('hidden'); downloadRenderLink.removeAttribute('href'); renderProgressPanel.classList.add('hidden'); resetRenderProgress('Waiting.');
         renderBrowserBtn.disabled = true;
