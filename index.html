@@ -768,6 +768,7 @@
           <input id="padding" title="Keep this much audio around speech before and after cuts." type="number" min="0" max="2" step="0.02" value="0.06" />
           <button id="detectBtn" class="primary" style="width:100%; margin-top:12px;" title="Scan the audio and mark silent sections red.">Analyze silence</button>
           <button id="applySilenceBtn" class="green" style="width:100%; margin-top:8px;" title="Remove marked silence and turn the result into one editable clip." disabled>Apply jump cuts as one clip</button>
+          <button id="skipSilenceBtn" style="width:100%; margin-top:8px;" title="Skip silence detection and continue with the whole video as one editable clip.">Skip silence removal</button>
         </div>
 
         <div class="step" id="step2">
@@ -845,6 +846,19 @@
             <option value="medium">Medium — slower, smaller file</option>
             <option value="slow">Slow — slowest, smallest file</option>
           </select>
+          <label>Browser render engine / threads</label>
+          <select id="wasmThreads" title="Limits FFmpeg encoder threads for browser rendering. Chrome is auto-selected to the single-core renderer for stability; Firefox is auto-selected to FFmpeg default.">
+            <option value="chrome-safe">Chrome Safe — single-core</option>
+            <option value="2">2 threads</option>
+            <option value="4">4 threads</option>
+            <option value="8">8 threads</option>
+            <option value="12">12 threads</option>
+            <option value="16">16 threads</option>
+            <option value="24">24 threads</option>
+            <option value="32">32 threads</option>
+            <option value="auto">Auto / FFmpeg default</option>
+          </select>
+
           <label>Bitrate / Quality mode</label>
           <select id="rateMode" title="CRF targets visual quality. Manual bitrate targets an approximate file size.">
             <option value="crf" selected>CRF quality</option>
@@ -951,6 +965,7 @@
 
     let browserFFmpeg = null;
     let browserFFmpegLoaded = false;
+    let browserFFmpegCoreMode = null;
     const MIN_RENDER_SEGMENT_SECONDS = 0.08;
 
     const fmt = (s) => {
@@ -1065,6 +1080,38 @@
       updateUi();
       generateCommand(false);
       log('Step 2 ready. Silence was removed and edits update the preview.');
+    }
+
+    function skipSilenceRemoval() {
+      if (!state.file || !state.duration) {
+        log('Open a video before skipping silence removal.');
+        return;
+      }
+
+      state.silent = [];
+      state.keep = [{ start: 0, end: state.duration }];
+      state.appliedSilence = true;
+      state.clips = [{
+        id: crypto.randomUUID(),
+        label: allocateClipLabel(),
+        segments: [{ start: 0, end: state.duration }],
+        crop: defaultCrop(),
+        pip: defaultPip(),
+        mainFrame: defaultMainFrame(),
+      }];
+      state.selectedClip = 0;
+      state.cursor = 0;
+      $('silenceStats').textContent = 'skipped';
+      $('step1').classList.remove('active');
+      $('step1').classList.add('done');
+      $('step1').classList.add('hidden');
+      $('step2').classList.add('active');
+      syncPreviewToTimeline();
+      draw();
+      renderClips();
+      updateUi();
+      generateCommand(false);
+      log('Step 2 ready. Silence removal was skipped, so the whole video is now one editable clip.');
     }
 
     function mergeRanges(ranges) {
@@ -1551,6 +1598,7 @@
     });
     $('detectBtn').addEventListener('click', detectSilence);
     $('applySilenceBtn').addEventListener('click', applySilenceAsOneClip);
+    $('skipSilenceBtn').addEventListener('click', skipSilenceRemoval);
     $('threshold').addEventListener('input', () => $('thresholdVal').textContent = $('threshold').value);
 
     function pauseTimeline() {
@@ -2472,6 +2520,19 @@
     $('rateMode').addEventListener('change', () => { updateRateControlUi(); generateCommand(false); log(`Encoding mode set to ${$('rateMode').value === 'bitrate' ? 'manual bitrate' : 'CRF quality'}.`); });
     $('crfValue').addEventListener('change', () => { generateCommand(false); log(`CRF set to ${$('crfValue').value}.`); });
     $('videoBitrate').addEventListener('input', () => { updateBitrateEstimate(); generateCommand(false); });
+    initBrowserThreadDefault();
+    $('wasmThreads').addEventListener('change', () => { generateCommand(false); log(`WASM render threads set to ${effectiveThreadModeLabel()}.`); });
+    function initBrowserThreadDefault() {
+      const select = $('wasmThreads');
+      if (!select) return;
+      const detected = defaultThreadModeForBrowser();
+      select.value = detected;
+      const label = detected === 'auto'
+        ? 'Firefox detected: Auto / FFmpeg default selected.'
+        : 'Chrome-like browser detected: Chrome Safe — single-core selected.';
+      select.title = `${select.title} ${label}`;
+    }
+
     function updateCustomResUi() {
       const panel = $('customResPanel');
       const btn = $('customResToggle');
@@ -2859,14 +2920,56 @@
       return ['-preset', preset, '-crf', String($('crfValue')?.value || 23)];
     }
 
+    function isFirefoxBrowser() {
+      return typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent || '');
+    }
+
+    function isChromeLikeBrowser() {
+      const ua = navigator.userAgent || '';
+      return /Chrome|Chromium|Edg|OPR|Brave/i.test(ua) && !/Firefox/i.test(ua);
+    }
+
+    function defaultThreadModeForBrowser() {
+      // Firefox handled ffmpeg.wasm core-mt auto/default threading well in testing.
+      // Chrome-like browsers can hang in x264/core-mt, so they start with the single-core renderer.
+      if (isFirefoxBrowser()) return 'auto';
+      if (isChromeLikeBrowser()) return 'chrome-safe';
+      return 'chrome-safe';
+    }
+
+    function effectiveThreadMode() {
+      return $('wasmThreads')?.value || defaultThreadModeForBrowser();
+    }
+
+    function browserThreadArgs() {
+      const setting = effectiveThreadMode();
+      if (setting === 'auto') return [];
+      const threads = setting === 'chrome-safe' ? 1 : Math.max(1, Number(setting) || 1);
+      return ['-threads', String(threads)];
+    }
+
+    function desktopThreadCommandString() {
+      const setting = effectiveThreadMode();
+      if (setting === 'auto') return '';
+      const threads = setting === 'chrome-safe' ? 1 : Math.max(1, Number(setting) || 1);
+      return ` -threads ${threads}`;
+    }
+
+    function effectiveThreadModeLabel() {
+      const mode = effectiveThreadMode();
+      if (mode === 'auto') return 'Auto / FFmpeg default';
+      if (mode === 'chrome-safe') return 'Chrome Safe — single-core';
+      return `${mode} threads`;
+    }
+
     function renderEncodingCommandString() {
       const preset = $('x264Preset')?.value || 'fast';
       const mode = $('rateMode')?.value || 'crf';
       if (mode === 'bitrate') {
         const kbps = selectedVideoKbps();
-        return `-c:v libx264 -preset ${preset} -b:v ${kbps}k -minrate ${kbps}k -maxrate ${kbps}k -bufsize ${Math.max(600, kbps * 2)}k -pix_fmt yuv420p`;
+        return `-c:v libx264${desktopThreadCommandString()} -preset ${preset} -b:v ${kbps}k -minrate ${kbps}k -maxrate ${kbps}k -bufsize ${Math.max(600, kbps * 2)}k -pix_fmt yuv420p`;
       }
-      return `-c:v libx264 -preset ${preset} -crf ${$('crfValue')?.value || 23} -pix_fmt yuv420p`;
+      return `-c:v libx264${desktopThreadCommandString()} -preset ${preset} -crf ${$('crfValue')?.value || 23} -pix_fmt yuv420p`;
     }
 
     function updateRateControlUi() {
@@ -2953,6 +3056,7 @@
         '-reset_timestamps', '1',
         '-avoid_negative_ts', 'make_zero',
         '-c:v', 'libx264',
+        ...browserThreadArgs(),
         ...renderEncodingArgs(),
         '-pix_fmt', 'yuv420p',
         '-c:a', 'aac',
@@ -2964,10 +3068,20 @@
     }
 
     async function getBrowserFFmpeg() {
-      if (browserFFmpegLoaded && browserFFmpeg) {
+      const coreMode = effectiveThreadMode() === 'chrome-safe' ? 'single' : 'multi';
+
+      if (browserFFmpegLoaded && browserFFmpeg && browserFFmpegCoreMode === coreMode) {
         updateRenderBars(100, null);
-        renderLog('Multicore FFmpeg already loaded.');
+        renderLog(`${coreMode === 'single' ? 'Single-core' : 'Multicore'} FFmpeg already loaded.`);
         return browserFFmpeg;
+      }
+
+      if (browserFFmpegLoaded && browserFFmpeg && browserFFmpegCoreMode !== coreMode) {
+        renderLog(`Switching FFmpeg core from ${browserFFmpegCoreMode} to ${coreMode}...`);
+        try { await browserFFmpeg.terminate(); } catch {}
+        browserFFmpeg = null;
+        browserFFmpegLoaded = false;
+        browserFFmpegCoreMode = null;
       }
 
       showRenderProgress();
@@ -2975,26 +3089,33 @@
       renderBrowserBtn.disabled = true;
       renderBrowserBtn.textContent = 'Loading FFmpeg...';
       updateRenderBars(2, 0);
-      renderLogBox.textContent = 'Starting local multicore FFmpeg WebAssembly load...';
+      renderLogBox.textContent = `Starting local ${coreMode === 'single' ? 'single-core' : 'multicore'} FFmpeg WebAssembly load...`;
       renderLog(`Environment: crossOriginIsolated=${window.crossOriginIsolated}, SharedArrayBuffer=${typeof SharedArrayBuffer !== 'undefined'}, origin=${location.origin}`);
 
-      if (!window.crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') {
+      if (coreMode === 'multi' && (!window.crossOriginIsolated || typeof SharedArrayBuffer === 'undefined')) {
         throw new Error(
-          'Multicore FFmpeg requires cross-origin isolation. Serve the app with COOP/COEP headers: Cross-Origin-Opener-Policy=same-origin and Cross-Origin-Embedder-Policy=require-corp.'
+          'Multicore FFmpeg requires cross-origin isolation. Serve the app with COOP/COEP headers: Cross-Origin-Opener-Policy=same-origin and Cross-Origin-Embedder-Policy=require-corp, or use Chrome Safe single-core mode.'
         );
       }
 
-      renderLog('Using local multithread FFmpeg files from ./ffmpeg/core-mt/.');
+      renderLog(coreMode === 'single'
+        ? 'Using local single-thread FFmpeg files from ./ffmpeg/core/.'
+        : 'Using local multithread FFmpeg files from ./ffmpeg/core-mt/.');
 
       const localURL = (path) => new URL(path, window.location.href).href;
       const ffmpegModuleURL = localURL('./ffmpeg/ffmpeg/index.js');
       const utilModuleURL = localURL('./ffmpeg/util/index.js');
       const classWorkerURL = localURL('./ffmpeg/ffmpeg/worker.js');
 
-      // Multithreaded core-mt files.
-      const coreURL = localURL('./ffmpeg/core-mt/ffmpeg-core.js');
-      const wasmURL = localURL('./ffmpeg/core-mt/ffmpeg-core.wasm');
-      const workerURL = localURL('./ffmpeg/core-mt/ffmpeg-core.worker.js');
+      const coreURL = localURL(coreMode === 'single'
+        ? './ffmpeg/core/ffmpeg-core.js'
+        : './ffmpeg/core-mt/ffmpeg-core.js');
+      const wasmURL = localURL(coreMode === 'single'
+        ? './ffmpeg/core/ffmpeg-core.wasm'
+        : './ffmpeg/core-mt/ffmpeg-core.wasm');
+      const workerURL = coreMode === 'single'
+        ? null
+        : localURL('./ffmpeg/core-mt/ffmpeg-core.worker.js');
 
       async function checkAsset(url, label, progress) {
         renderPhaseText.textContent = `checking ${label}`;
@@ -3008,17 +3129,17 @@
       }
 
       await checkAsset(classWorkerURL, 'FFmpeg wrapper worker', 10);
-      await checkAsset(coreURL, 'FFmpeg multithread core JS', 22);
-      await checkAsset(wasmURL, 'FFmpeg multithread core WASM', 34);
-      await checkAsset(workerURL, 'FFmpeg core thread worker', 46);
+      await checkAsset(coreURL, coreMode === 'single' ? 'FFmpeg single-core core JS' : 'FFmpeg multithread core JS', 26);
+      await checkAsset(wasmURL, coreMode === 'single' ? 'FFmpeg single-core core WASM' : 'FFmpeg multithread core WASM', 42);
+      if (workerURL) await checkAsset(workerURL, 'FFmpeg core thread worker', 50);
 
       renderLog('Importing local FFmpeg wrapper modules...');
-      updateRenderBars(55, null);
+      updateRenderBars(58, null);
       const [{ FFmpeg }, { fetchFile }] = await Promise.all([
         import(ffmpegModuleURL),
         import(utilModuleURL),
       ]);
-      updateRenderBars(65, null);
+      updateRenderBars(68, null);
 
       const ffmpeg = new FFmpeg();
       let activeJobIndex = 0;
@@ -3046,21 +3167,28 @@
       };
 
       renderPhaseText.textContent = 'initializing';
-      renderLog('Initializing multithread FFmpeg from local files...');
-      renderLog(`Local URLs: worker=${classWorkerURL}, core=${coreURL}, wasm=${wasmURL}, threadWorker=${workerURL}`);
-      updateRenderBars(75, null);
+      renderLog(`Initializing ${coreMode === 'single' ? 'single-core' : 'multithread'} FFmpeg from local files...`);
+      renderLog(workerURL
+        ? `Local URLs: worker=${classWorkerURL}, core=${coreURL}, wasm=${wasmURL}, threadWorker=${workerURL}`
+        : `Local URLs: worker=${classWorkerURL}, core=${coreURL}, wasm=${wasmURL}`);
+      updateRenderBars(78, null);
+
+      const loadConfig = workerURL
+        ? { classWorkerURL, coreURL, wasmURL, workerURL }
+        : { classWorkerURL, coreURL, wasmURL };
 
       await withTimeout(
-        ffmpeg.load({ classWorkerURL, coreURL, wasmURL, workerURL }),
+        ffmpeg.load(loadConfig),
         60000,
-        'multicore ffmpeg.load from local files'
+        `${coreMode === 'single' ? 'single-core' : 'multicore'} ffmpeg.load from local files`
       );
       updateRenderBars(100, null);
 
       browserFFmpeg = ffmpeg;
       browserFFmpegLoaded = true;
+      browserFFmpegCoreMode = coreMode;
       window.__ffmpegFetchFile = fetchFile;
-      renderLog('Multicore FFmpeg loaded.');
+      renderLog(`${coreMode === 'single' ? 'Single-core' : 'Multicore'} FFmpeg loaded.`);
       return ffmpeg;
     }
 
@@ -3107,12 +3235,13 @@
           updateRenderBars(null, base);
           try { await ffmpeg.deleteFile(job.out); } catch {}
           const args = ['-y', ...ffmpegArgsForJob(job, inputName)];
-          renderLog('WASM note: testing libx264 with -preset fast. If this crashes, use the no-preset version.');
+          renderLog(`WASM note: using ${$('x264Preset')?.value || 'fast'} preset with ${effectiveThreadModeLabel()}.`);
           renderLog(`FFmpeg args: ${args.join(' ')}`);
           try {
-            await ffmpeg.exec(args);
+            await withTimeout(ffmpeg.exec(args), 120000, `segment ${i + 1} render`);
           } catch (err) {
-            renderLog(`Segment ${i + 1} failed. Args were: ${args.join(' ')}`);
+            renderLog(`Segment ${i + 1} failed or timed out. Args were: ${args.join(' ')}`);
+            renderLog('If this happens in Chrome, use Chrome Safe single-core mode, disable PIP for this render, or try Firefox for multicore rendering.');
             throw err;
           }
           updateRenderBars(null, base + segmentSpan);
