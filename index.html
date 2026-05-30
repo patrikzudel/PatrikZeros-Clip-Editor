@@ -200,6 +200,51 @@ z-index: 2;
       pointer-events: none;
     }
 
+
+    .controlSelectLabel {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      margin: 0;
+      color: var(--ink);
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .controlSelectLabel select {
+      width: auto;
+      min-width: 74px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      font: inherit;
+      font-weight: 800;
+    }
+    .timelineTools {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .zoomLabel {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .zoomLabel input[type=range] {
+      width: 130px;
+    }
+    #timelineZoomVal {
+      min-width: 38px;
+      color: var(--ink);
+      font-weight: 800;
+    }
+
     .controls {
       padding: 12px 14px;
       display: flex;
@@ -299,8 +344,48 @@ z-index: 2;
     .timelineTop span { color: var(--muted); font-size: 13px; }
 
     .timelineWrap {
-      overflow-x: auto;
-      padding-bottom: 4px;
+      overflow-x: scroll;
+      overflow-y: hidden;
+      padding-bottom: 14px;
+      scrollbar-gutter: stable;
+      overscroll-behavior-x: contain;
+      scrollbar-width: auto;
+      scrollbar-color: #64748b #e2e8f0;
+    }
+    .timelineWrap::-webkit-scrollbar {
+      height: 12px;
+    }
+    .timelineWrap::-webkit-scrollbar-track {
+      background: #e2e8f0;
+      border-radius: 999px;
+      box-shadow: inset 0 0 0 1px #cbd5e1;
+    }
+    .timelineWrap::-webkit-scrollbar-thumb {
+      background: #64748b;
+      border-radius: 999px;
+      border: 2px solid #e2e8f0;
+    }
+    .timelineWrap::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+
+
+    .timelineScrollHint {
+      height: 8px;
+      margin-top: -7px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      box-shadow: inset 0 0 0 1px #cbd5e1;
+      position: relative;
+      pointer-events: none;
+    }
+    .timelineScrollHint > div {
+      height: 100%;
+      min-width: 34px;
+      border-radius: 999px;
+      background: #64748b;
+      transform: translateX(0);
+      width: 100%;
     }
 
     canvas#waveCanvas {
@@ -741,6 +826,14 @@ z-index: 2;
         <div class="controls">
           <button id="playBtn" class="primary">Play timeline</button>
           <button id="pauseBtn">Pause</button>
+          <label class="controlSelectLabel">Preview Speed
+            <select id="previewSpeed" title="Timeline preview playback speed.">
+              <option value="1" selected>1×</option>
+              <option value="1.5">1.5×</option>
+              <option value="2">2×</option>
+              <option value="3">3×</option>
+            </select>
+          </label>
           <button id="splitBtn" title="Shortcut: S">Split at cursor (S)</button>
           <button id="newSessionBtn" class="danger" title="Reset everything and unload the current video.">New Session</button>
         </div>
@@ -748,12 +841,19 @@ z-index: 2;
         <section class="timelineCard inlineTimeline">
           <div class="timelineTop">
             <strong id="timelineTitle">Timeline</strong>
-            <span id="timeReadout">00:00 / 00:00</span>
+            <div class="timelineTools">
+              <label class="zoomLabel">Timeline zoom
+                <input id="timelineZoom" type="range" min="0" max="100" step="1" value="0" title="Zoom in for more precise cuts on long videos. The curve is gentle at the beginning and stronger near the end." />
+                <span id="timelineZoomVal">1×</span>
+              </label>
+              <span id="timeReadout">00:00 / 00:00</span>
+            </div>
           </div>
           <div class="timelineWrap">
             <canvas id="waveCanvas" width="1400" height="150"></canvas>
             <div class="clipStrip" id="clipStrip"></div>
           </div>
+          <div class="timelineScrollHint"><div id="timelineScrollHintThumb"></div></div>
         </section>
         <div class="brandBelowTimeline">PatrikZero's Clip Editor by <a href="https://patrikzudel.me/" target="_blank" rel="noopener noreferrer">patrikzudel.me</a></div>
       </section>
@@ -962,6 +1062,7 @@ z-index: 2;
     const cropGuideOutline = $('cropGuideOutline');
     const cropResizeHandle = $('cropResizeHandle');
     const canvas = $('waveCanvas');
+    const timelineWrap = document.querySelector('.timelineWrap');
     const ctx = canvas.getContext('2d');
     const clipStrip = $('clipStrip');
     const statusBox = $('status');
@@ -989,6 +1090,8 @@ z-index: 2;
       advancedCropOpen: false,
       renderGuidesOn: true,
       customResOpen: false,
+      timelineZoom: 1,
+      previewSpeed: 1,
     };
 
     let browserFFmpeg = null;
@@ -1421,13 +1524,104 @@ z-index: 2;
       log('Place the cursor inside a clip, not exactly on a clip edge.');
     }
 
+    const MAX_TIMELINE_ZOOM = 20;
+    const TIMELINE_ZOOM_CURVE = 1.7;
+
+    function sliderToTimelineZoom(sliderValue) {
+      const t = clamp(Number(sliderValue) / 100, 0, 1);
+      return Math.exp(Math.log(MAX_TIMELINE_ZOOM) * Math.pow(t, TIMELINE_ZOOM_CURVE));
+    }
+
+    function timelineZoomToSlider(zoomValue) {
+      const z = clamp(Number(zoomValue) || 1, 1, MAX_TIMELINE_ZOOM);
+      const t = Math.pow(Math.log(z) / Math.log(MAX_TIMELINE_ZOOM), 1 / TIMELINE_ZOOM_CURVE);
+      return Math.round(clamp(t, 0, 1) * 100);
+    }
+
+    function timelineTotalDuration() {
+      return state.appliedSilence ? Math.max(0.001, timelineDuration()) : Math.max(0.001, state.duration);
+    }
+
+    function timelinePixelWidth() {
+      const viewport = timelineWrap?.clientWidth || canvas.parentElement?.clientWidth || 720;
+      return Math.max(720, Math.round(viewport * (state.timelineZoom || 1)));
+    }
+
+    function timelineXForTime(time, width = timelinePixelWidth()) {
+      return clamp(time, 0, timelineTotalDuration()) / timelineTotalDuration() * width;
+    }
+
+    function timelineTimeAtClientX(clientX) {
+      const rect = canvas.getBoundingClientRect();
+      const x = clamp(clientX - rect.left, 0, canvas.clientWidth || timelinePixelWidth());
+      return x / Math.max(1, canvas.clientWidth || timelinePixelWidth()) * timelineTotalDuration();
+    }
+
+    function centerTimelineOnTime(time) {
+      if (!timelineWrap) return;
+      const width = timelinePixelWidth();
+      const viewport = timelineWrap.clientWidth || 1;
+      const x = timelineXForTime(time, width);
+      const target = x - viewport / 2;
+      const maxScroll = Math.max(0, width - viewport);
+      timelineWrap.scrollLeft = clamp(target, 0, maxScroll);
+      updateTimelineScrollHint();
+    }
+
+    function updateTimelineScrollHint() {
+      const track = $('timelineScrollHintThumb');
+      if (!track || !timelineWrap) return;
+      const viewport = timelineWrap.clientWidth || 1;
+      const content = timelinePixelWidth();
+      const maxScroll = Math.max(1, content - viewport);
+      const widthPct = clamp(viewport / Math.max(viewport, content) * 100, 4, 100);
+      const xPct = clamp(timelineWrap.scrollLeft / maxScroll * (100 - widthPct), 0, 100 - widthPct);
+      track.style.width = `${widthPct}%`;
+      track.style.transform = `translateX(${xPct / Math.max(0.0001, widthPct) * 100}%)`;
+    }
+
+    function applyTimelineZoomWidth() {
+      const width = timelinePixelWidth();
+      canvas.style.width = `${width}px`;
+      canvas.style.minWidth = `${width}px`;
+      clipStrip.style.width = `${width}px`;
+      clipStrip.style.minWidth = `${width}px`;
+      $('timelineZoomVal').textContent = `${Number(state.timelineZoom || 1).toFixed((state.timelineZoom || 1) % 1 ? 2 : 0).replace(/\.00$/, '')}×`;
+      updateTimelineScrollHint();
+    }
+
+    function setTimelineZoom(newZoom, anchorTime = state.cursor) {
+      state.timelineZoom = clamp(Number(newZoom) || 1, 1, MAX_TIMELINE_ZOOM);
+      $('timelineZoom').value = timelineZoomToSlider(state.timelineZoom);
+      applyTimelineZoomWidth();
+      draw();
+      renderClips();
+      requestAnimationFrame(() => centerTimelineOnTime(anchorTime));
+    }
+
+    function applyPreviewSpeed() {
+      const speed = Number($('previewSpeed')?.value || state.previewSpeed || 1);
+      state.previewSpeed = speed;
+      [video, pipVideo, pipPlacementMainVideo, pipPlacementPipVideo].forEach(v => {
+        if (v) v.playbackRate = speed;
+      });
+    }
+
     function draw() {
-      const dpr = window.devicePixelRatio || 1;
+      applyTimelineZoomWidth();
+      const deviceDpr = window.devicePixelRatio || 1;
       const cssW = canvas.clientWidth || 1400;
       const cssH = 138;
-      canvas.width = Math.floor(cssW * dpr);
-      canvas.height = Math.floor(cssH * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // Large zoom values can make the canvas wider than browser/GPU limits,
+      // especially on high-DPI displays. Keep the CSS width large for scrolling,
+      // but cap the actual backing bitmap and draw in CSS coordinates.
+      const maxBackingW = 16384;
+      const maxBackingH = 4096;
+      const scale = Math.max(0.1, Math.min(deviceDpr, maxBackingW / Math.max(1, cssW), maxBackingH / cssH));
+      canvas.width = Math.max(1, Math.floor(cssW * scale));
+      canvas.height = Math.max(1, Math.floor(cssH * scale));
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
       ctx.clearRect(0,0,cssW,cssH);
 
       const mid = 70, amp = 43;
@@ -1491,28 +1685,58 @@ z-index: 2;
     }
 
     function drawWaveSource(start, end, x, width, mid, amp) {
+      const duration = Math.max(0.0001, end - start);
       const visible = state.peaks.filter(p => p.t1 >= start && p.t0 <= end);
+      if (!visible.length || width <= 0) return;
+
+      // Draw a continuous waveform envelope instead of isolated bars.
+      // At high zoom the decoded peak bins are far apart; connecting the
+      // envelope keeps the waveform readable instead of breaking into dots.
+      const points = visible.map(p => {
+        const t0 = clamp((p.t0 - start) / duration, 0, 1);
+        const t1 = clamp((p.t1 - start) / duration, 0, 1);
+        return {
+          x: x + ((t0 + t1) / 2) * width,
+          a: Math.max(1, p.max * amp * 2.7),
+        };
+      });
+
+      // Add hard endpoints so long sparse sections still connect cleanly.
+      if (points[0].x > x) points.unshift({ x, a: points[0].a });
+      const right = x + width;
+      if (points[points.length - 1].x < right) points.push({ x: right, a: points[points.length - 1].a });
+
+      ctx.fillStyle = 'rgba(29, 155, 240, .34)';
       ctx.strokeStyle = '#1d9bf0';
       ctx.lineWidth = 1;
+
       ctx.beginPath();
-      for (const p of visible) {
-        const t = (p.t0 - start) / Math.max(0.0001, end - start);
-        const px = x + t * width;
-        const a = Math.max(1, p.max * amp * 2.7);
-        ctx.moveTo(px, mid - a);
-        ctx.lineTo(px, mid + a);
+      ctx.moveTo(points[0].x, mid - points[0].a);
+      for (const p of points) ctx.lineTo(p.x, mid - p.a);
+      for (let i = points.length - 1; i >= 0; i--) {
+        const p = points[i];
+        ctx.lineTo(p.x, mid + p.a);
       }
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, mid - points[0].a);
+      for (const p of points) ctx.lineTo(p.x, mid - p.a);
+      ctx.moveTo(points[0].x, mid + points[0].a);
+      for (const p of points) ctx.lineTo(p.x, mid + p.a);
       ctx.stroke();
     }
 
     function renderClips() {
       clipStrip.innerHTML = '';
       const total = Math.max(0.001, timelineDuration());
+      const timelineWidth = timelinePixelWidth();
       state.clips.forEach((clip, idx) => {
         const el = document.createElement('div');
         el.className = 'clip' + (idx === state.selectedClip ? ' selected' : '');
         el.draggable = true;
-        el.style.flexBasis = `${Math.max(120, clipDuration(clip) / total * 1000)}px`;
+        el.style.flexBasis = `${Math.max(120, clipDuration(clip) / total * timelineWidth)}px`;
         const pipTag = ensurePip(clip).enabled ? '<br><b>PIP on</b>' : '';
         el.innerHTML = `
           <button class="mergeBtn mergeLeft" title="Merge with left clip" ${idx === 0 ? 'disabled' : ''}>⇤&#8288;|</button>
@@ -1605,18 +1829,23 @@ z-index: 2;
     }
 
     canvas.addEventListener('click', (e) => {
+      if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur?.();
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const total = state.appliedSilence ? timelineDuration() : state.duration;
       state.cursor = clamp(x / rect.width * total, 0, total);
       syncPreviewToTimeline(true);
-      draw(); renderClips(); updateUi(); updateCropOverlay(); updatePipPreview();
+      draw(); renderClips(); updateUi(); updateCropOverlay(); updatePipPreview(); centerTimelineOnTime(state.cursor);
     });
 
     document.addEventListener('keydown', (e) => {
-      const tag = document.activeElement.tagName;
-      const isTyping = ['INPUT','TEXTAREA','SELECT'].includes(tag) || document.activeElement.isContentEditable;
-      if (isTyping) return;
+      const active = document.activeElement;
+      const tag = active?.tagName || '';
+      const inputType = (active?.getAttribute?.('type') || '').toLowerCase();
+      const isTextInput = tag === 'TEXTAREA' || tag === 'SELECT' || (
+        tag === 'INPUT' && !['range', 'button', 'checkbox', 'radio', 'file'].includes(inputType)
+      ) || active?.isContentEditable;
+      if (isTextInput) return;
 
       if (e.key === 'Escape' && !$('renderModal').classList.contains('hidden')) { closeRenderModal(); return; }
 
@@ -1627,7 +1856,7 @@ z-index: 2;
 
       if (e.code === 'Space') {
         e.preventDefault();
-        if (state.playingTimeline && !video.paused) pauseTimeline();
+        if (state.playingTimeline) pauseTimeline();
         else playTimeline();
       }
     });
@@ -1651,6 +1880,28 @@ z-index: 2;
       if (!state.playingTimeline) return;
     });
 
+    $('timelineZoom').addEventListener('input', () => {
+      setTimelineZoom(sliderToTimelineZoom($('timelineZoom').value), state.cursor);
+    });
+
+    timelineWrap.addEventListener('scroll', updateTimelineScrollHint);
+    timelineWrap.addEventListener('wheel', (e) => {
+      const isHorizontalScroll = Math.abs(e.deltaX) > Math.abs(e.deltaY) && !e.ctrlKey && !e.metaKey;
+      if (isHorizontalScroll) return;
+
+      e.preventDefault();
+      const anchorTime = state.cursor;
+      const current = Number(state.timelineZoom || 1);
+      const factor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
+      const next = clamp(current * factor, 1, MAX_TIMELINE_ZOOM);
+      setTimelineZoom(next, anchorTime);
+    }, { passive: false });
+
+    $('previewSpeed').addEventListener('change', () => {
+      applyPreviewSpeed();
+      log(`Preview speed set to ${$('previewSpeed').value}×.`);
+    });
+
     $('playBtn').addEventListener('click', playTimeline);
     $('pauseBtn').addEventListener('click', pauseTimeline);
     $('splitBtn').addEventListener('click', splitAtCursor);
@@ -1670,6 +1921,7 @@ z-index: 2;
       state.activeTimelineItem = null;
       video.pause();
       pauseMirrorVideos();
+      applyPreviewSpeed();
       draw();
       updateUi();
       log('Timeline preview paused.');
@@ -1687,6 +1939,7 @@ z-index: 2;
         if (!Number.isFinite(state.cursor) || state.cursor >= (state.duration || 0) - 0.01) state.cursor = 0;
         video.currentTime = clamp(state.cursor, 0, state.duration || 0);
         syncMirrorVideoTimes();
+        applyPreviewSpeed();
         try {
           await video.play();
           await playMirrorVideos();
@@ -3529,8 +3782,9 @@ z-index: 2;
         fileName: keepName,
         objectUrl: '', duration: 0, peaks: [], silent: [], keep: [], appliedSilence: false,
         clips: [], selectedClip: 0, cursor: 0, playingTimeline: false, suppressNativeTimeUpdate: false,
-        previewRunId: state.previewRunId + 1, activeTimelineItem: null, nextClipNumber: 1, pipEditMode: false, allowOutOfBoundsCrop: false, advancedCropOpen: false, renderGuidesOn: true, customResOpen: false
+        previewRunId: state.previewRunId + 1, activeTimelineItem: null, nextClipNumber: 1, pipEditMode: false, allowOutOfBoundsCrop: false, advancedCropOpen: false, renderGuidesOn: true, customResOpen: false, timelineZoom: 1, previewSpeed: 1
       });
+      $('timelineZoom').value = '0'; state.timelineZoom = 1; applyTimelineZoomWidth(); if (timelineWrap) timelineWrap.scrollLeft = 0; updateTimelineScrollHint(); $('previewSpeed').value = '1'; applyPreviewSpeed();
       if (clearFile) {
         fileInput.value = '';
         openVideoOverlay.classList.remove('hidden');
