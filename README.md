@@ -1,4 +1,4 @@
-# PatrikZeros-Video-Editor
+# PatrikZeros Clip Editor
 #### ⭐️ Star the repo if you like it!
 #### A simple, yet competent browser based video editor with local rendering.
 
