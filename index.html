@@ -62,7 +62,7 @@
       padding: 14px;
       position: relative;
       min-height: 0;
-      overflow: visible;
+      overflow: hidden;
       transition: padding .08s ease;
     }
     .openVideoOverlay {
@@ -92,6 +92,29 @@
       display: block;
     }
 
+
+    .cropGuideOutline {
+      position: absolute;
+      pointer-events: none;
+      display: none;
+      border: 2px solid rgba(37, 99, 235, .98);
+      z-index: 11;
+      box-shadow: 0 0 0 1px rgba(255,255,255,.28);
+    }
+    .pipPlacementMainGuide {
+      position: absolute;
+      pointer-events: none;
+      border: 2px solid rgba(37, 99, 235, .98);
+      z-index: 10;
+      box-shadow: 0 0 0 1px rgba(255,255,255,.28);
+    }
+    .pipPlacementStage.guidesOff .pipPlacementMainGuide,
+    .pipPlacementStage.guidesOff .cropGuideOutline {
+      display: none !important;
+      border-color: transparent !important;
+      box-shadow: none !important;
+    }
+
     .cropOverlay {
       position: absolute;
       pointer-events: auto;
@@ -99,7 +122,9 @@
       border: 2px solid rgba(37, 99, 235, .95);
       box-shadow: 0 0 0 9999px rgba(0, 0, 0, .28);
       display: none;
-      touch-action: none;
+      
+      z-index: 7;
+touch-action: none;
     }
     .cropOverlay::after {
       content: "Drag crop";
@@ -160,7 +185,9 @@
       font-size: 11px;
       font-weight: 900;
       pointer-events: none;
-      z-index: 2;
+      
+      z-index: 8;
+z-index: 2;
     }
     .pipPreview video {
       position: absolute;
@@ -465,6 +492,7 @@
       background-size: 33.333% 33.333%, 33.333% 33.333%, 100% 100%;
       overflow: hidden;
       touch-action: none;
+      z-index: 5;
     }
     .pipPlacementGrid {
       position: absolute;
@@ -525,6 +553,7 @@
     .pipPlacementStage.guidesOff .pipPlacementResizeHandle {
       display: none !important;
     }
+    .pipPlacementStage.guidesOff .pipPlacementMainGuide,
     .pipPlacementStage.guidesOff .pipPlacementMain,
     .pipPlacementStage.guidesOff .pipPlacementBox {
       border-color: transparent !important;
@@ -589,21 +618,20 @@
 
     .small { font-size: 12px; color: var(--muted); line-height: 1.45; }
 
-    .brandHeader {
-      width: min(1500px, calc(100vw - 24px));
-      margin: 12px auto 0;
-      padding: 8px 0 2px;
+    .brandBelowTimeline {
       text-align: center;
       color: var(--muted);
       font-size: 13px;
-      flex-shrink: 0;
+      padding: 12px 10px 14px;
+      border-top: 1px solid var(--line);
+      background: #fff;
     }
-    .brandHeader a {
+    .brandBelowTimeline a {
       color: var(--accent);
       text-decoration: none;
       font-weight: 700;
     }
-    .brandHeader a:hover { text-decoration: underline; }
+    .brandBelowTimeline a:hover { text-decoration: underline; }
 
 
     .customResPanel {
@@ -699,10 +727,7 @@
   </style>
 </head>
 <body>
-  <header class="brandHeader">PatrikZero's Clip Editor by <a href="https://patrikzudel.me/" target="_blank" rel="noopener noreferrer">patrikzudel.me</a></header>
-
-
-  <main>
+<main>
     <div class="grid">
       <section class="card">
         <div class="viewer" id="viewer">
@@ -711,7 +736,7 @@
           </div>
           <video id="video" playsinline></video>
           <div class="pipPreview" id="pipPreview"><video id="pipVideo" muted playsinline></video><div class="pipSourceResizeHandle" id="pipSourceResizeHandle" title="Resize PIP source"></div></div>
-          <div class="cropOverlay" id="cropOverlay"><div class="resizeHandle" id="cropResizeHandle" title="Resize crop"></div></div>
+          <div class="cropOverlay" id="cropOverlay"><div class="resizeHandle" id="cropResizeHandle" title="Resize crop"></div></div><div class="cropGuideOutline" id="cropGuideOutline"></div>
         </div>
         <div class="controls">
           <button id="playBtn" class="primary">Play timeline</button>
@@ -730,6 +755,7 @@
             <div class="clipStrip" id="clipStrip"></div>
           </div>
         </section>
+        <div class="brandBelowTimeline">PatrikZero's Clip Editor by <a href="https://patrikzudel.me/" target="_blank" rel="noopener noreferrer">patrikzudel.me</a></div>
       </section>
 
       <aside class="card">
@@ -737,7 +763,7 @@
         <div class="step renderPreviewCard" id="renderPreviewCard">
 <div class="stepTitle">Render Preview <button id="renderGuidesToggle" type="button" class="miniToggle active" title="Show or hide render preview guides.">Guides on</button></div>
             <div class="pipPlacementStage" id="pipPlacementStage" title="Drag the main layer or green PIP layer inside the final render frame">
-              <div class="pipPlacementMain" id="pipPlacementMain"><video id="pipPlacementMainVideo" muted playsinline></video></div>
+              <div class="pipPlacementMain" id="pipPlacementMain"><video id="pipPlacementMainVideo" muted playsinline></video></div><div class="pipPlacementMainGuide" id="pipPlacementMainGuide"></div>
               <div class="pipPlacementGrid"></div>
               <div class="pipPlacementBox" id="pipPlacementBox"><video id="pipPlacementPipVideo" muted playsinline></video><span class="pipPlacementLabel">PIP placement</span><div class="pipPlacementResizeHandle" id="pipPlacementResizeHandle" title="Resize PIP placement"></div></div>
             </div>
@@ -926,12 +952,14 @@
     const pipSourceResizeHandle = $('pipSourceResizeHandle');
     const pipPlacementStage = $('pipPlacementStage');
     const pipPlacementMain = $('pipPlacementMain');
+    const pipPlacementMainGuide = $('pipPlacementMainGuide');
     const pipPlacementMainVideo = $('pipPlacementMainVideo');
     const pipPlacementBox = $('pipPlacementBox');
     const pipPlacementPipVideo = $('pipPlacementPipVideo');
     const pipPlacementResizeHandle = $('pipPlacementResizeHandle');
     const viewer = $('viewer');
     const cropOverlay = $('cropOverlay');
+    const cropGuideOutline = $('cropGuideOutline');
     const cropResizeHandle = $('cropResizeHandle');
     const canvas = $('waveCanvas');
     const ctx = canvas.getContext('2d');
@@ -1068,8 +1096,21 @@
 
     function applySilenceAsOneClip() {
       if (!state.keep.length) return;
+
+      const current = state.clips[state.selectedClip] || state.clips[0];
+      const preservedCrop = structuredClone(current?.crop || defaultCrop());
+      const preservedPip = structuredClone(current ? ensurePip(current) : defaultPip());
+      const preservedMainFrame = structuredClone(current ? ensureMainFrame(current) : defaultMainFrame());
+
       state.appliedSilence = true;
-      state.clips = [{ id: crypto.randomUUID(), label: allocateClipLabel(), segments: structuredClone(state.keep), crop: defaultCrop(), pip: defaultPip(), mainFrame: defaultMainFrame() }];
+      state.clips = [{
+        id: crypto.randomUUID(),
+        label: allocateClipLabel(),
+        segments: structuredClone(state.keep),
+        crop: preservedCrop,
+        pip: preservedPip,
+        mainFrame: preservedMainFrame,
+      }];
       state.selectedClip = 0;
       state.cursor = 0;
       $('step1').classList.remove('active'); $('step1').classList.add('done'); $('step1').classList.add('hidden');
@@ -1091,13 +1132,18 @@
       state.silent = [];
       state.keep = [{ start: 0, end: state.duration }];
       state.appliedSilence = true;
+      const current = state.clips[state.selectedClip] || state.clips[0];
+      const preservedCrop = structuredClone(current?.crop || defaultCrop());
+      const preservedPip = structuredClone(current ? ensurePip(current) : defaultPip());
+      const preservedMainFrame = structuredClone(current ? ensureMainFrame(current) : defaultMainFrame());
+
       state.clips = [{
         id: crypto.randomUUID(),
         label: allocateClipLabel(),
         segments: [{ start: 0, end: state.duration }],
-        crop: defaultCrop(),
-        pip: defaultPip(),
-        mainFrame: defaultMainFrame(),
+        crop: preservedCrop,
+        pip: preservedPip,
+        mainFrame: preservedMainFrame,
       }];
       state.selectedClip = 0;
       state.cursor = 0;
@@ -1137,11 +1183,11 @@
     }
 
     function defaultCrop() {
-      // Default to a visible 16:9 crop instead of an invisible full-frame crop.
-      return sourceRatioCrop(16, 9);
+      // Default crop starts in the bottom-right corner.
+      return sourceRatioCrop(16, 9, 'bottom-right');
     }
 
-    function sourceRatioCrop(ratioW, ratioH) {
+    function sourceRatioCrop(ratioW, ratioH, anchor = 'center') {
       const targetAspect = ratioW / ratioH;
       const sourceAspect = sourceAspectRatio();
       let w = 100;
@@ -1150,14 +1196,31 @@
       if (sourceAspect > targetAspect) w = (targetAspect / sourceAspect) * 100;
       else h = (sourceAspect / targetAspect) * 100;
 
-      return normalizeSourceCrop({ x: (100 - w) / 2, y: (100 - h) / 2, w, h });
+      let x = (100 - w) / 2;
+      let y = (100 - h) / 2;
+      if (anchor === 'top-left') {
+        x = 0;
+        y = 0;
+      } else if (anchor === 'bottom-right') {
+        x = 100 - w;
+        y = 100 - h;
+      }
+
+      return normalizeSourceCrop({ x, y, w, h });
+    }
+
+    function initialPipSourceCropForClip(clip) {
+      return cropMatchesRatio(clip?.crop, 9, 16)
+        ? sourceRatioCrop(16, 9, 'top-left')
+        : sourceRatioCrop(4, 3, 'top-left');
     }
 
     function defaultPip() {
       return {
         enabled: false,
-        crop: sourceRatioCrop(16, 9),
-        frame: { x: 62, y: 56, w: 32 },
+        // PIP source starts in the top-left corner.
+        crop: sourceRatioCrop(4, 3, 'top-left'),
+        frame: { x: 0, y: 0, w: 32 },
       };
     }
     function ensurePip(clip) {
@@ -1169,7 +1232,7 @@
 
     function defaultMainFrame() {
       // x/y are top-left percentages of the final render frame.
-      // null means "use centered default for the current crop/render aspect".
+      // null means "use the default bottom-aligned placement for the current crop/render aspect".
       return { x: null, y: null };
     }
 
@@ -1827,7 +1890,8 @@
     function updateCropOverlay() {
       const clip = state.clips[state.selectedClip];
       if (!clip) {
-        cropOverlay.style.display = 'none';
+        cropOverlay.style.display = 'none'; if (cropGuideOutline) cropGuideOutline.style.display = 'none';
+        cropGuideOutline.style.display = 'none';
         resetViewerPadding();
         return;
       }
@@ -1841,12 +1905,23 @@
 
       const vr = video.getBoundingClientRect();
       const pr = viewer.getBoundingClientRect();
+      const left = vr.left - pr.left + vr.width * c.x / 100;
+      const top = vr.top - pr.top + vr.height * c.y / 100;
+      const width = vr.width * c.w / 100;
+      const height = vr.height * c.h / 100;
+
       cropOverlay.style.display = 'block';
-      cropOverlay.style.left = `${vr.left - pr.left + vr.width * c.x / 100}px`;
-      cropOverlay.style.top = `${vr.top - pr.top + vr.height * c.y / 100}px`;
-      cropOverlay.style.width = `${vr.width * c.w / 100}px`;
-      cropOverlay.style.height = `${vr.height * c.h / 100}px`;
+      cropOverlay.style.left = `${left}px`;
+      cropOverlay.style.top = `${top}px`;
+      cropOverlay.style.width = `${width}px`;
+      cropOverlay.style.height = `${height}px`;
       cropOverlay.style.background = cropIsOutOfBounds(c) ? 'rgba(0,0,0,.18)' : 'transparent';
+
+      cropGuideOutline.style.display = 'block';
+      cropGuideOutline.style.left = `${left}px`;
+      cropGuideOutline.style.top = `${top}px`;
+      cropGuideOutline.style.width = `${width}px`;
+      cropGuideOutline.style.height = `${height}px`;
     }
 
     function loadPipSliders() {
@@ -1863,6 +1938,7 @@
       $('pipToggle').textContent = pip.enabled ? 'PIP mode: on' : 'PIP mode';
       $('pipPanel').classList.toggle('open', state.pipEditMode || !!pip.enabled);
       $('pipStatus').textContent = pip.enabled ? 'on' : 'off';
+      updatePipCropPresetButtons();
     }
 
     function pipFrameHeightPct(pip) {
@@ -1886,7 +1962,8 @@
 
     function mainLayerDefaultFrame(clip) {
       const size = mainLayerSizePct(clip);
-      return { x: (100 - size.w) / 2, y: (100 - size.h) / 2, w: size.w, h: size.h };
+      // Main layer defaults to bottom aligned in the final render frame.
+      return { x: (100 - size.w) / 2, y: 100 - size.h, w: size.w, h: size.h };
     }
 
     function clampMainFrameToRender(clip) {
@@ -1977,6 +2054,7 @@
       const pip = ensurePip(clip);
       pip.frame = { ...pip.frame, ...frame };
       clampPipFrameToMain(clip);
+      updateCropPresetButtons();
       loadPipSliders();
       updatePipPlacementStage();
       updatePipPreview();
@@ -2052,6 +2130,14 @@
       pipPlacementMain.style.top = `${metrics.mainY}px`;
       pipPlacementMain.style.width = `${metrics.mainW}px`;
       pipPlacementMain.style.height = `${metrics.mainH}px`;
+
+      if (pipPlacementMainGuide) {
+        pipPlacementMainGuide.style.left = `${metrics.mainX}px`;
+        pipPlacementMainGuide.style.top = `${metrics.mainY}px`;
+        pipPlacementMainGuide.style.width = `${metrics.mainW}px`;
+        pipPlacementMainGuide.style.height = `${metrics.mainH}px`;
+        pipPlacementMainGuide.style.display = state.renderGuidesOn ? 'block' : 'none';
+      }
       placeVideoCropInBox(pipPlacementMainVideo, metrics.mainW, metrics.mainH, clip.crop, metrics.sourceAspect);
 
       if (pip.enabled) clampPipFrameToMain(clip);
@@ -2454,9 +2540,11 @@
 
     function fitPipToWidthForInitialUse(clip) {
       const pip = ensurePip(clip);
+      pip.crop = initialPipSourceCropForClip(clip);
       const bounds = normalizedPlacementBounds(clip);
       pip.frame.w = bounds.w;
       pip.frame.x = bounds.x;
+      pip.frame.y = bounds.y;
       clampPipFrameToMain(clip);
     }
 
@@ -2464,7 +2552,9 @@
       const clip = state.clips[state.selectedClip];
       if (!clip) return;
       const pip = ensurePip(clip);
+      if (!pip.enabled) pip.crop = initialPipSourceCropForClip(clip);
       pip.enabled = true;
+      updateCropPresetButtons();
       const bounds = normalizedPlacementBounds(clip);
       const h = placementHeightPctFromWidth(clip, pip, pip.frame.w);
 
@@ -2481,6 +2571,7 @@
 
       clampPipFrameToMain(clip);
       loadPipSliders();
+      updateCropPresetButtons();
       updatePipPlacementStage();
       updatePipPreview();
       renderClips();
@@ -2514,8 +2605,8 @@
     $('res1080').addEventListener('click', () => setRenderSize(1920, 1080));
     $('res720').addEventListener('click', () => setRenderSize(1280, 720));
     $('resVertical').addEventListener('click', () => setRenderSize(1080, 1920));
-    $('renderW').addEventListener('input', () => { updateRenderPresetButtons(); updatePipPlacementStage(); updatePipPreview(); updateBitrateEstimate(); generateCommand(false); });
-    $('renderH').addEventListener('input', () => { updateRenderPresetButtons(); updatePipPlacementStage(); updatePipPreview(); updateBitrateEstimate(); generateCommand(false); });
+    $('renderW').addEventListener('input', () => { updateRenderPresetButtons(); updateCropPresetButtons(); updatePipPlacementStage(); updatePipPreview(); updateBitrateEstimate(); generateCommand(false); });
+    $('renderH').addEventListener('input', () => { updateRenderPresetButtons(); updateCropPresetButtons(); updatePipPlacementStage(); updatePipPreview(); updateBitrateEstimate(); generateCommand(false); });
     $('x264Preset').addEventListener('change', () => { generateCommand(false); updateBitrateEstimate(); log(`Quality/Speed preset set to ${$('x264Preset').value}.`); });
     $('rateMode').addEventListener('change', () => { updateRateControlUi(); generateCommand(false); log(`Encoding mode set to ${$('rateMode').value === 'bitrate' ? 'manual bitrate' : 'CRF quality'}.`); });
     $('crfValue').addEventListener('change', () => { generateCommand(false); log(`CRF set to ${$('crfValue').value}.`); });
@@ -2581,11 +2672,15 @@
       const wasEnabled = pip.enabled;
       pip.enabled = !pip.enabled;
       state.pipEditMode = pip.enabled;
-      if (pip.enabled && !wasEnabled) fitPipToWidthForInitialUse(clip);
+      if (pip.enabled && !wasEnabled) {
+        fitPipToWidthForInitialUse(clip);
+        updateCropPresetButtons();
+      }
       if (pip.enabled && pipVideo.src && !pipVideo.currentTime) pipVideo.currentTime = video.currentTime || 0;
       loadPipSliders();
       updatePipPreview();
       updatePipPlacementStage();
+      updateCropPresetButtons();
       renderClips();
       generateCommand(false);
       log(`${pip.enabled ? 'PIP enabled' : 'PIP disabled'} for ${clip.label}.`);
@@ -2743,10 +2838,55 @@
       return normalizeCrop({ x: (100 - w) / 2, y: (100 - h) / 2, w, h });
     }
 
+    function cropAspect(c) {
+      if (!c) return 0;
+      return Math.max(0.001, (Number(c.w) * sourceAspectRatio()) / Math.max(0.001, Number(c.h)));
+    }
+
+    function cropMatchesRatio(c, ratioW, ratioH) {
+      if (!c) return false;
+      const actual = cropAspect(c);
+      const target = ratioW / ratioH;
+      return Math.abs(actual - target) / target < 0.025;
+    }
+
+    function updateMainCropPresetButtons() {
+      const clip = state.clips[state.selectedClip];
+      const c = clip?.crop;
+      const buttons = [
+        ['ratio169', 16, 9],
+        ['ratio43', 4, 3],
+        ['ratio916', 9, 16],
+        ['ratio144175', 144, 175],
+      ];
+      buttons.forEach(([id, w, h]) => $(id)?.classList.toggle('active', cropMatchesRatio(c, w, h)));
+    }
+
+    function updatePipCropPresetButtons() {
+      const clip = state.clips[state.selectedClip];
+      const pip = clip ? ensurePip(clip) : null;
+      const c = pip?.enabled ? pip.crop : null;
+      const buttons = [
+        ['pipCrop169', 16, 9],
+        ['pipCrop43', 4, 3],
+        ['pipCrop916', 9, 16],
+        ['pipCrop144175', 144, 175],
+      ];
+      buttons.forEach(([id, w, h]) => $(id)?.classList.toggle('active', cropMatchesRatio(c, w, h)));
+    }
+
+    function updateCropPresetButtons() {
+      updateMainCropPresetButtons();
+      updatePipCropPresetButtons();
+    }
+
     function applyCropRatio(ratioW, ratioH) {
       const clip = state.clips[state.selectedClip];
       if (!clip) return;
       clip.crop = ratioCrop(ratioW, ratioH);
+      ensureMainFrame(clip).x = null;
+      ensureMainFrame(clip).y = null;
+      updateCropPresetButtons();
       refreshAfterCropChange();
       log(`Applied ${ratioW}:${ratioH} crop to ${clip.label}. Drag the crop box in the preview to position it precisely.`);
     }
@@ -2757,8 +2897,10 @@
       const pip = ensurePip(clip);
       pip.crop = sourceRatioCrop(ratioW, ratioH);
       pip.enabled = true;
+      updateCropPresetButtons();
       loadPipSliders();
       updatePipPreview();
+      updatePipPlacementStage();
       renderClips();
       generateCommand(false);
       log(`Applied ${ratioW}:${ratioH} PIP crop to ${clip.label}.`);
@@ -2791,7 +2933,24 @@
     function setRenderSize(w, h) {
       $('renderW').value = w;
       $('renderH').value = h;
+
+      const clip = state.clips[state.selectedClip];
+      if (clip) {
+        if (w === 1080 && h === 1920) {
+          clip.crop = ratioCrop(9, 16);
+          ensureMainFrame(clip).x = null;
+          ensureMainFrame(clip).y = null;
+        } else if ((w === 1920 && h === 1080) || (w === 1280 && h === 720)) {
+          clip.crop = ratioCrop(16, 9);
+          ensureMainFrame(clip).x = null;
+          ensureMainFrame(clip).y = null;
+        }
+      }
+
       updateRenderPresetButtons();
+      updateCropPresetButtons();
+      loadCropSliders();
+      updateCropOverlay();
       updatePipPlacementStage();
       updatePipPreview();
       generateCommand(false);
@@ -3358,6 +3517,7 @@
       updatePipPlacementStage();
       updateCustomResUi();
       updateRenderPresetButtons();
+      updateCropPresetButtons();
     }
 
     function resetAll(clearFile = true) {
