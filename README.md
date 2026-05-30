@@ -1,8 +1,6 @@
 # PatrikZeros-Video-Editor
-A simple, yet competent browser based video editor with local rendering.
-
 #### ⭐️ Star the repo if you like it!
-#### Static website that allows you to use your OpenAI API key for the same experience as you get with ChatGPT!
+#### A simple, yet competent browser based video editor with local rendering.
 
  ## 📖 How to use
 
@@ -36,11 +34,11 @@ A simple, yet competent browser based video editor with local rendering.
 
 ## 🖥️ Preview
 
-![Main editor preview](/preview-images/main.jpg)
+<img src="/preview-images/main.jpg" alt="Main editor preview" height="420">
 
-![Silence detection preview](/preview-images/silence.jpg)
+<img src="/preview-images/silence.jpg" alt="Silence detection preview" height="420">
 
-![Render preview](/preview-images/render.jpg)
+<img src="/preview-images/render.jpg" alt="Render preview" height="420">
 
 
 ## 💬 Reasonings
