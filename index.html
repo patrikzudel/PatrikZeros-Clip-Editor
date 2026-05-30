@@ -388,6 +388,11 @@ z-index: 2;
       width: 100%;
     }
 
+
+    canvas#waveCanvas.scrubbing {
+      cursor: grabbing;
+    }
+
     canvas#waveCanvas {
       display: block;
       width: 100%;
@@ -1828,14 +1833,54 @@ z-index: 2;
       afterTimelineEdit(state.clips.length ? 'Clip deleted. Preview now shows the clip that fills that timeline position.' : 'All clips deleted.');
     }
 
-    canvas.addEventListener('click', (e) => {
-      if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur?.();
+    let timelineScrub = null;
+
+    function scrubTimelineToClientX(clientX, keepCentered = false) {
       const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
+      const x = clamp(clientX - rect.left, 0, rect.width || 1);
       const total = state.appliedSilence ? timelineDuration() : state.duration;
-      state.cursor = clamp(x / rect.width * total, 0, total);
+      state.cursor = clamp(x / Math.max(1, rect.width) * total, 0, total);
       syncPreviewToTimeline(true);
-      draw(); renderClips(); updateUi(); updateCropOverlay(); updatePipPreview(); centerTimelineOnTime(state.cursor);
+      draw();
+      renderClips();
+      updateUi();
+      updateCropOverlay();
+      updatePipPreview();
+      if (keepCentered) centerTimelineOnTime(state.cursor);
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+      if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur?.();
+      if (e.button !== undefined && e.button !== 0) return;
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+      timelineScrub = { pointerId: e.pointerId };
+      canvas.classList.add('scrubbing');
+      scrubTimelineToClientX(e.clientX, false);
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (!timelineScrub || e.pointerId !== timelineScrub.pointerId) return;
+      e.preventDefault();
+      scrubTimelineToClientX(e.clientX, false);
+    });
+
+    canvas.addEventListener('pointerup', (e) => {
+      if (!timelineScrub || e.pointerId !== timelineScrub.pointerId) return;
+      e.preventDefault();
+      scrubTimelineToClientX(e.clientX, true);
+      timelineScrub = null;
+      canvas.classList.remove('scrubbing');
+    });
+
+    canvas.addEventListener('pointercancel', () => {
+      timelineScrub = null;
+      canvas.classList.remove('scrubbing');
+    });
+
+    canvas.addEventListener('lostpointercapture', () => {
+      timelineScrub = null;
+      canvas.classList.remove('scrubbing');
     });
 
     document.addEventListener('keydown', (e) => {
