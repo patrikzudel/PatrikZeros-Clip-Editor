@@ -877,7 +877,7 @@ z-index: 2;
             <div class="pipPlacementStage" id="pipPlacementStage" title="Drag the main layer or green PIP layer inside the final render frame">
               <div class="pipPlacementMain" id="pipPlacementMain"><video id="pipPlacementMainVideo" muted playsinline></video></div><div class="pipPlacementMainGuide" id="pipPlacementMainGuide"></div>
               <div class="pipPlacementGrid"></div>
-              <div class="pipPlacementBox" id="pipPlacementBox"><video id="pipPlacementPipVideo" muted playsinline></video><span class="pipPlacementLabel">PIP placement</span><div class="pipPlacementResizeHandle" id="pipPlacementResizeHandle" title="Resize PIP placement"></div></div>
+              <div class="pipPlacementBox" id="pipPlacementBox"><video id="pipPlacementPipVideo" muted playsinline></video><div class="pipPlacementResizeHandle" id="pipPlacementResizeHandle" title="Resize PIP placement"></div></div>
             </div>
 <div class="renderPreviewSettings">
               <label>Render size</label>
@@ -915,6 +915,7 @@ z-index: 2;
           <div class="ratioButtons">
             <button id="ratio169" type="button" title="Set the selected clip crop to 16:9.">16:9</button>
             <button id="ratio43" type="button" title="Set the selected clip crop to 4:3.">4:3</button>
+            <button id="ratio11" type="button" title="Set the selected clip crop to 1:1 square.">1:1</button>
             <button id="ratio916" type="button" title="Set the selected clip crop to 9:16 vertical.">9:16</button>
             <button id="ratio144175" type="button" title="Set the selected clip crop to 144:175, the lower area under a full-width 16:9 video in a 9:16 frame.">144:175</button>
             <button id="cropBoundsToggle" type="button" title="Allows the crop to leave the source; missing areas render black.">Allow outside of bounds</button>
@@ -942,6 +943,7 @@ z-index: 2;
             <div class="ratioButtons">
               <button id="pipCrop169" type="button" title="Set the PIP source crop to 16:9.">16:9</button>
               <button id="pipCrop43" type="button" title="Set the PIP source crop to 4:3.">4:3</button>
+              <button id="pipCrop11" type="button" title="Set the PIP source crop to 1:1 square.">1:1</button>
               <button id="pipCrop916" type="button" title="Set the PIP source crop to 9:16.">9:16</button>
               <button id="pipCrop144175" type="button" title="Set the PIP source crop to 144:175.">144:175</button>
             </div>
@@ -2912,6 +2914,7 @@ z-index: 2;
     });
     $('ratio169').addEventListener('click', () => applyCropRatio(16, 9));
     $('ratio43').addEventListener('click', () => applyCropRatio(4, 3));
+    $('ratio11').addEventListener('click', () => applyCropRatio(1, 1));
     $('ratio916').addEventListener('click', () => applyCropRatio(9, 16));
     $('ratio144175').addEventListener('click', () => applyCropRatio(144, 175));
     $('res1080').addEventListener('click', () => setRenderSize(1920, 1080));
@@ -2999,6 +3002,7 @@ z-index: 2;
     });
     $('pipCrop169').addEventListener('click', () => applyPipCropRatio(16, 9));
     $('pipCrop43').addEventListener('click', () => applyPipCropRatio(4, 3));
+    $('pipCrop11').addEventListener('click', () => applyPipCropRatio(1, 1));
     $('pipCrop916').addEventListener('click', () => applyPipCropRatio(9, 16));
     $('pipCrop144175').addEventListener('click', () => applyPipCropRatio(144, 175));
     $('pipCenterH').addEventListener('click', () => nudgePipPlacement('centerH'));
@@ -3201,6 +3205,7 @@ z-index: 2;
       const buttons = [
         ['ratio169', 16, 9],
         ['ratio43', 4, 3],
+        ['ratio11', 1, 1],
         ['ratio916', 9, 16],
         ['ratio144175', 144, 175],
       ];
@@ -3214,6 +3219,7 @@ z-index: 2;
       const buttons = [
         ['pipCrop169', 16, 9],
         ['pipCrop43', 4, 3],
+        ['pipCrop11', 1, 1],
         ['pipCrop916', 9, 16],
         ['pipCrop144175', 144, 175],
       ];
