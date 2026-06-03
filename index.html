@@ -200,6 +200,9 @@ z-index: 2;
       box-shadow: none;
       pointer-events: none;
     }
+    .pipPreview:not(.rounded) {
+      border-radius: 0;
+    }
 
 
     .controlSelectLabel {
@@ -548,7 +551,7 @@ z-index: 2;
       font-size: 12px;
       background: #f8fafc;
     }
-    .ratioButtons button.active, #pipToggle.active, #cropBoundsToggle.active, #advancedCropToggle.active, #renderGuidesToggle.active {
+    .ratioButtons button.active, #pipToggle.active, #pipRoundedToggle.active, #cropBoundsToggle.active, #advancedCropToggle.active, #renderGuidesToggle.active {
       background: #16a34a;
       border-color: #16a34a;
       color: white;
@@ -632,6 +635,9 @@ z-index: 2;
       box-shadow: 0 8px 18px rgba(15, 23, 42, .16);
       touch-action: none;
       z-index: 4;
+    }
+    .pipPlacementBox.rounded {
+      border-radius: 12px;
     }
 
     .pipPlacementStage.guidesOff {
@@ -930,6 +936,7 @@ z-index: 2;
               <button id="pipCenterV" type="button" title="Center the PIP layer vertically inside the final frame.">Center vertically</button>
               <button id="pipFitW" type="button" title="Resize the PIP layer to fit the final frame width.">Fit to width</button>
               <button id="pipFitH" type="button" title="Resize the PIP layer to fit the final frame height.">Fit to height</button>
+              <button id="pipRoundedToggle" type="button" title="Enable or disable rounded PIP edges in preview and render.">Rounded edges: on</button>
             </div>
             <label>PIP Source crop preset</label>
             <div class="ratioButtons">
@@ -1327,6 +1334,7 @@ z-index: 2;
     function defaultPip() {
       return {
         enabled: false,
+        rounded: true,
         // PIP source starts in the top-left corner.
         crop: sourceRatioCrop(4, 3, 'top-left'),
         frame: { x: 0, y: 0, w: 32 },
@@ -1334,6 +1342,7 @@ z-index: 2;
     }
     function ensurePip(clip) {
       if (!clip.pip) clip.pip = defaultPip();
+      if (typeof clip.pip.rounded !== 'boolean') clip.pip.rounded = true;
       if (!clip.pip.crop) clip.pip.crop = defaultPip().crop;
       if (!clip.pip.frame) clip.pip.frame = defaultPip().frame;
       return clip.pip;
@@ -2235,6 +2244,8 @@ z-index: 2;
       $('pipW').value = pip.frame.w;
       $('pipToggle').classList.toggle('active', !!pip.enabled);
       $('pipToggle').textContent = pip.enabled ? 'PIP mode: on' : 'PIP mode';
+      $('pipRoundedToggle').classList.toggle('active', !!pip.rounded);
+      $('pipRoundedToggle').textContent = pip.rounded ? 'Rounded edges: on' : 'Rounded edges';
       $('pipPanel').classList.toggle('open', state.pipEditMode || !!pip.enabled);
       $('pipStatus').textContent = pip.enabled ? 'on' : 'off';
       updatePipCropPresetButtons();
@@ -2390,6 +2401,7 @@ z-index: 2;
       pipPreview.style.top = `${vr.top - pr.top + y}px`;
       pipPreview.style.width = `${frameW}px`;
       pipPreview.style.height = `${frameH}px`;
+      pipPreview.classList.toggle('rounded', !!pip.rounded);
 
       const fullW = vr.width;
       const fullH = vr.height;
@@ -2453,6 +2465,7 @@ z-index: 2;
       pipPlacementBox.style.top = `${y}px`;
       pipPlacementBox.style.width = `${boxW}px`;
       pipPlacementBox.style.height = `${boxH}px`;
+      pipPlacementBox.classList.toggle('rounded', !!pip.rounded);
       placeVideoCropInBox(pipPlacementPipVideo, boxW, boxH, pip.crop, metrics.sourceAspect);
       syncMirrorVideoTimes();
     }
@@ -2992,6 +3005,18 @@ z-index: 2;
     $('pipCenterV').addEventListener('click', () => nudgePipPlacement('centerV'));
     $('pipFitW').addEventListener('click', () => nudgePipPlacement('fitW'));
     $('pipFitH').addEventListener('click', () => nudgePipPlacement('fitH'));
+    $('pipRoundedToggle').addEventListener('click', () => {
+      const clip = state.clips[state.selectedClip];
+      if (!clip) return;
+      const pip = ensurePip(clip);
+      pip.rounded = !pip.rounded;
+      state.pipEditMode = true;
+      loadPipSliders();
+      updatePipPreview();
+      updatePipPlacementStage();
+      generateCommand(false);
+      log(`PIP rounded edges ${pip.rounded ? 'enabled' : 'disabled'} for ${clip.label}.`);
+    });
     ['pipCropX','pipCropY','pipCropW','pipCropH','pipX','pipY','pipW'].forEach(id => $(id).addEventListener('input', updatePipFromSliders));
 
     renderBrowserBtn.addEventListener('click', renderInBrowser);
@@ -3094,6 +3119,24 @@ z-index: 2;
       return filters.join(',');
     }
 
+    function roundedPipMaskFilter(width, height) {
+      const scale = 4;
+      const maskW = width * scale;
+      const maskH = height * scale;
+      const radius = Math.max(2 * scale, Math.round(Math.min(maskW, maskH) * 0.08));
+      const rightCenter = Math.max(radius, maskW - radius - 1);
+      const bottomCenter = Math.max(radius, maskH - radius - 1);
+      const rightEdge = Math.max(0, maskW - radius);
+      const bottomEdge = Math.max(0, maskH - radius);
+      const radiusSquared = radius * radius;
+      const tl = `lte((X-${radius})*(X-${radius})+(Y-${radius})*(Y-${radius})\\,${radiusSquared})`;
+      const tr = `lte((X-${rightCenter})*(X-${rightCenter})+(Y-${radius})*(Y-${radius})\\,${radiusSquared})`;
+      const bl = `lte((X-${radius})*(X-${radius})+(Y-${bottomCenter})*(Y-${bottomCenter})\\,${radiusSquared})`;
+      const br = `lte((X-${rightCenter})*(X-${rightCenter})+(Y-${bottomCenter})*(Y-${bottomCenter})\\,${radiusSquared})`;
+      const mask = `if(lt(X\\,${radius})*lt(Y\\,${radius})\\,if(${tl}\\,255\\,0)\\,if(gte(X\\,${rightEdge})*lt(Y\\,${radius})\\,if(${tr}\\,255\\,0)\\,if(lt(X\\,${radius})*gte(Y\\,${bottomEdge})\\,if(${bl}\\,255\\,0)\\,if(gte(X\\,${rightEdge})*gte(Y\\,${bottomEdge})\\,if(${br}\\,255\\,0)\\,255))))`;
+      return `color=c=white:s=${maskW}x${maskH},format=gray,geq=lum_expr='${mask}',scale=${width}:${height}:flags=lanczos,format=gray`;
+    }
+
     function pipFilterComplex(clip) {
       const pip = ensurePip(clip);
       const { w, h } = renderSize();
@@ -3113,9 +3156,12 @@ z-index: 2;
         `scale=${frameW}:${frameH}:force_original_aspect_ratio=increase`,
         `crop=${frameW}:${frameH}`,
         'setsar=1',
-        'format=yuv420p'
+        `format=${pip.rounded ? 'rgba' : 'yuv420p'}`
       ].filter(Boolean).join(',');
 
+      if (pip.rounded) {
+        return `[0:v]${mainBaseFilter(clip, 'base')};[0:v]${pipChain}[pipraw];${roundedPipMaskFilter(frameW, frameH)}[pipmask];[pipraw][pipmask]alphamerge[pip];[base][pip]overlay=${xPx}:${yPx}:format=auto,format=yuv420p`;
+      }
       return `[0:v]${mainBaseFilter(clip, 'base')};[0:v]${pipChain}[pip];[base][pip]overlay=${xPx}:${yPx}:format=auto,format=yuv420p`;
     }
 
