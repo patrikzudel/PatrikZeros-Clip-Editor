@@ -200,6 +200,9 @@ z-index: 2;
       box-shadow: none;
       pointer-events: none;
     }
+    .pipPreview.rounded {
+      border-radius: 5px;
+    }
     .pipPreview:not(.rounded) {
       border-radius: 0;
     }
@@ -551,7 +554,7 @@ z-index: 2;
       font-size: 12px;
       background: #f8fafc;
     }
-    .ratioButtons button.active, #pipToggle.active, #pipRoundedToggle.active, #cropBoundsToggle.active, #advancedCropToggle.active, #renderGuidesToggle.active {
+    .ratioButtons button.active, #pipToggle.active, #pipRoundedToggle.active, #pipEffectsToggle.active, #cropBoundsToggle.active, #advancedCropToggle.active, #renderGuidesToggle.active {
       background: #16a34a;
       border-color: #16a34a;
       color: white;
@@ -637,7 +640,25 @@ z-index: 2;
       z-index: 4;
     }
     .pipPlacementBox.rounded {
-      border-radius: 12px;
+      border-radius: 6px;
+    }
+    .pipPlacementBox.effects {
+      border-color: transparent;
+      background: transparent;
+    }
+    .pipPlacementBox.effects::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      z-index: 6;
+      padding: 2px;
+      background: linear-gradient(to bottom, rgba(56, 189, 248, .95), rgba(56, 189, 248, 0) 82%);
+      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+      mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      mask-composite: exclude;
     }
 
     .pipPlacementStage.guidesOff {
@@ -651,11 +672,20 @@ z-index: 2;
       display: none !important;
     }
     .pipPlacementStage.guidesOff .pipPlacementMainGuide,
-    .pipPlacementStage.guidesOff .pipPlacementMain,
-    .pipPlacementStage.guidesOff .pipPlacementBox {
+    .pipPlacementStage.guidesOff .pipPlacementMain {
       border-color: transparent !important;
       box-shadow: none !important;
       background: transparent !important;
+      outline: none !important;
+    }
+    .pipPlacementStage.guidesOff .pipPlacementBox:not(.effects) {
+      border-color: transparent !important;
+      box-shadow: none !important;
+      background: transparent !important;
+      outline: none !important;
+    }
+    .pipPlacementStage.guidesOff .pipPlacementBox.effects {
+      border-color: transparent !important;
       outline: none !important;
     }
     .pipPlacementStage.guidesOff .pipPlacementMain video,
@@ -938,6 +968,7 @@ z-index: 2;
               <button id="pipFitW" type="button" title="Resize the PIP layer to fit the final frame width.">Fit to width</button>
               <button id="pipFitH" type="button" title="Resize the PIP layer to fit the final frame height.">Fit to height</button>
               <button id="pipRoundedToggle" type="button" title="Enable or disable rounded PIP edges in preview and render.">Rounded edges: on</button>
+              <button id="pipEffectsToggle" type="button" title="Enable or disable the PIP shadow and blue gradient outline.">Effects</button>
             </div>
             <label>PIP Source crop preset</label>
             <div class="ratioButtons">
@@ -1337,6 +1368,7 @@ z-index: 2;
       return {
         enabled: false,
         rounded: true,
+        effects: false,
         // PIP source starts in the top-left corner.
         crop: sourceRatioCrop(4, 3, 'top-left'),
         frame: { x: 0, y: 0, w: 32 },
@@ -1345,6 +1377,7 @@ z-index: 2;
     function ensurePip(clip) {
       if (!clip.pip) clip.pip = defaultPip();
       if (typeof clip.pip.rounded !== 'boolean') clip.pip.rounded = true;
+      if (typeof clip.pip.effects !== 'boolean') clip.pip.effects = false;
       if (!clip.pip.crop) clip.pip.crop = defaultPip().crop;
       if (!clip.pip.frame) clip.pip.frame = defaultPip().frame;
       return clip.pip;
@@ -2248,6 +2281,8 @@ z-index: 2;
       $('pipToggle').textContent = pip.enabled ? 'PIP mode: on' : 'PIP mode';
       $('pipRoundedToggle').classList.toggle('active', !!pip.rounded);
       $('pipRoundedToggle').textContent = pip.rounded ? 'Rounded edges: on' : 'Rounded edges';
+      $('pipEffectsToggle').classList.toggle('active', !!pip.effects);
+      $('pipEffectsToggle').textContent = pip.effects ? 'Effects: on' : 'Effects';
       $('pipPanel').classList.toggle('open', state.pipEditMode || !!pip.enabled);
       $('pipStatus').textContent = pip.enabled ? 'on' : 'off';
       updatePipCropPresetButtons();
@@ -2468,6 +2503,7 @@ z-index: 2;
       pipPlacementBox.style.width = `${boxW}px`;
       pipPlacementBox.style.height = `${boxH}px`;
       pipPlacementBox.classList.toggle('rounded', !!pip.rounded);
+      pipPlacementBox.classList.toggle('effects', !!pip.effects);
       placeVideoCropInBox(pipPlacementPipVideo, boxW, boxH, pip.crop, metrics.sourceAspect);
       syncMirrorVideoTimes();
     }
@@ -3021,6 +3057,18 @@ z-index: 2;
       generateCommand(false);
       log(`PIP rounded edges ${pip.rounded ? 'enabled' : 'disabled'} for ${clip.label}.`);
     });
+    $('pipEffectsToggle').addEventListener('click', () => {
+      const clip = state.clips[state.selectedClip];
+      if (!clip) return;
+      const pip = ensurePip(clip);
+      pip.effects = !pip.effects;
+      state.pipEditMode = true;
+      loadPipSliders();
+      updatePipPreview();
+      updatePipPlacementStage();
+      generateCommand(false);
+      log(`PIP effects ${pip.effects ? 'enabled' : 'disabled'} for ${clip.label}.`);
+    });
     ['pipCropX','pipCropY','pipCropW','pipCropH','pipX','pipY','pipW'].forEach(id => $(id).addEventListener('input', updatePipFromSliders));
 
     renderBrowserBtn.addEventListener('click', renderInBrowser);
@@ -3127,7 +3175,7 @@ z-index: 2;
       const scale = 4;
       const maskW = width * scale;
       const maskH = height * scale;
-      const radius = Math.max(2 * scale, Math.round(Math.min(maskW, maskH) * 0.08));
+      const radius = Math.max(2 * scale, Math.round(Math.min(maskW, maskH) * 0.04));
       const rightCenter = Math.max(radius, maskW - radius - 1);
       const bottomCenter = Math.max(radius, maskH - radius - 1);
       const rightEdge = Math.max(0, maskW - radius);
@@ -3139,6 +3187,57 @@ z-index: 2;
       const br = `lte((X-${rightCenter})*(X-${rightCenter})+(Y-${bottomCenter})*(Y-${bottomCenter})\\,${radiusSquared})`;
       const mask = `if(lt(X\\,${radius})*lt(Y\\,${radius})\\,if(${tl}\\,255\\,0)\\,if(gte(X\\,${rightEdge})*lt(Y\\,${radius})\\,if(${tr}\\,255\\,0)\\,if(lt(X\\,${radius})*gte(Y\\,${bottomEdge})\\,if(${bl}\\,255\\,0)\\,if(gte(X\\,${rightEdge})*gte(Y\\,${bottomEdge})\\,if(${br}\\,255\\,0)\\,255))))`;
       return `color=c=white:s=${maskW}x${maskH},format=gray,geq=lum_expr='${mask}',scale=${width}:${height}:flags=lanczos,format=gray`;
+    }
+
+    function roundedRectInsideExpr(x, y, width, height, radius) {
+      const right = x + width;
+      const bottom = y + height;
+      const leftCenter = x + radius;
+      const rightCenter = right - radius - 1;
+      const topCenter = y + radius;
+      const bottomCenter = bottom - radius - 1;
+      const r2 = radius * radius;
+      const bodyX = `gte(X\\,${leftCenter})*lt(X\\,${rightCenter + 1})*gte(Y\\,${y})*lt(Y\\,${bottom})`;
+      const bodyY = `gte(X\\,${x})*lt(X\\,${right})*gte(Y\\,${topCenter})*lt(Y\\,${bottomCenter + 1})`;
+      const tl = `lte((X-${leftCenter})*(X-${leftCenter})+(Y-${topCenter})*(Y-${topCenter})\\,${r2})`;
+      const tr = `lte((X-${rightCenter})*(X-${rightCenter})+(Y-${topCenter})*(Y-${topCenter})\\,${r2})`;
+      const bl = `lte((X-${leftCenter})*(X-${leftCenter})+(Y-${bottomCenter})*(Y-${bottomCenter})\\,${r2})`;
+      const br = `lte((X-${rightCenter})*(X-${rightCenter})+(Y-${bottomCenter})*(Y-${bottomCenter})\\,${r2})`;
+      return `gt(${bodyX}+${bodyY}+${tl}+${tr}+${bl}+${br}\\,0)`;
+    }
+
+    function pipGradientOutlineMaskFilter(width, height, pad, outline, rounded) {
+      const scale = 4;
+      const maskW = width * scale;
+      const maskH = height * scale;
+      const maskPad = pad * scale;
+      const maskOutline = outline * scale;
+      const pipW = (width - pad * 2) * scale;
+      const pipH = (height - pad * 2) * scale;
+      const outerX = maskPad - maskOutline;
+      const outerY = maskPad - maskOutline;
+      const outerW = pipW + maskOutline * 2;
+      const outerH = pipH + maskOutline * 2;
+      const radius = rounded ? Math.max(2 * scale, Math.round(Math.min(pipW, pipH) * 0.04)) : 1;
+      const outer = roundedRectInsideExpr(outerX, outerY, outerW, outerH, radius + maskOutline);
+      const inner = roundedRectInsideExpr(maskPad, maskPad, pipW, pipH, radius);
+      const fade = `220*(1-Y/${Math.max(1, maskH - 1)})`;
+      const mask = `if(${outer}*eq(${inner}\\,0)\\,${fade}\\,0)`;
+      return `color=c=white:s=${maskW}x${maskH},format=gray,geq=lum_expr='${mask}',scale=${width}:${height}:flags=lanczos,format=gray`;
+    }
+
+    function pipShadowMaskFilter(width, height, pipW, pipH, pad, shadowX, shadowY, rounded, blur) {
+      const scale = 4;
+      const maskW = width * scale;
+      const maskH = height * scale;
+      const x = (pad + shadowX) * scale;
+      const y = (pad + shadowY) * scale;
+      const w = pipW * scale;
+      const h = pipH * scale;
+      const radius = rounded ? Math.max(2 * scale, Math.round(Math.min(w, h) * 0.04)) : 1;
+      const rect = roundedRectInsideExpr(x, y, w, h, radius);
+      const mask = `if(${rect}\\,255\\,0)`;
+      return `color=c=white:s=${maskW}x${maskH},format=gray,geq=lum_expr='${mask}',scale=${width}:${height}:flags=lanczos,format=gray,boxblur=${blur}:1`;
     }
 
     function pipFilterComplex(clip) {
@@ -3155,16 +3254,47 @@ z-index: 2;
       const yPx = Math.max(0, Math.floor((h * pip.frame.y / 100) / 2) * 2);
 
       const pipCrop = cropExpr(pip.crop);
+      const pipHasAlpha = pip.rounded || pip.effects;
       const pipChain = [
         pipCrop,
         `scale=${frameW}:${frameH}:force_original_aspect_ratio=increase`,
         `crop=${frameW}:${frameH}`,
         'setsar=1',
-        `format=${pip.rounded ? 'rgba' : 'yuv420p'}`
+        `format=${pipHasAlpha ? 'rgba' : 'yuv420p'}`
       ].filter(Boolean).join(',');
 
+      const pipSource = pip.rounded
+        ? `[0:v]${pipChain}[pipraw];${roundedPipMaskFilter(frameW, frameH)}[pipmask];[pipraw][pipmask]alphamerge[pip]`
+        : `[0:v]${pipChain}[pip]`;
+
+      if (pip.effects) {
+        const effectBase = Math.min(frameW, frameH);
+        const outline = 2;
+        const shadowX = Math.max(2, Math.round(effectBase * 0.012));
+        const shadowY = Math.max(3, Math.round(effectBase * 0.018));
+        const blur = Math.max(3, Math.round(effectBase * 0.018));
+        const pad = Math.max(10, outline + blur * 3 + Math.max(shadowX, shadowY));
+        const effectW = frameW + pad * 2;
+        const effectH = frameH + pad * 2;
+        const effectX = xPx - pad;
+        const effectY = yPx - pad;
+        return [
+          `[0:v]${mainBaseFilter(clip, 'base')}`,
+          pipSource,
+          pipShadowMaskFilter(effectW, effectH, frameW, frameH, pad, shadowX, shadowY, pip.rounded, blur) + '[shadowmask]',
+          `color=c=black:s=${effectW}x${effectH},format=rgba[shadowcolor]`,
+          `[shadowcolor][shadowmask]alphamerge,colorchannelmixer=aa=0.32[shadow]`,
+          `color=c=0x38bdf8:s=${effectW}x${effectH},format=rgba[outlinecolor]`,
+          pipGradientOutlineMaskFilter(effectW, effectH, pad, outline, pip.rounded) + '[outlinemask]',
+          `[outlinecolor][outlinemask]alphamerge[outline]`,
+          `[base][shadow]overlay=${effectX}:${effectY}:format=auto[baseShadow]`,
+          `[baseShadow][outline]overlay=${effectX}:${effectY}:format=auto[baseEffects]`,
+          `[baseEffects][pip]overlay=${xPx}:${yPx}:format=auto,format=yuv420p`
+        ].join(';');
+      }
+
       if (pip.rounded) {
-        return `[0:v]${mainBaseFilter(clip, 'base')};[0:v]${pipChain}[pipraw];${roundedPipMaskFilter(frameW, frameH)}[pipmask];[pipraw][pipmask]alphamerge[pip];[base][pip]overlay=${xPx}:${yPx}:format=auto,format=yuv420p`;
+        return `[0:v]${mainBaseFilter(clip, 'base')};${pipSource};[base][pip]overlay=${xPx}:${yPx}:format=auto,format=yuv420p`;
       }
       return `[0:v]${mainBaseFilter(clip, 'base')};[0:v]${pipChain}[pip];[base][pip]overlay=${xPx}:${yPx}:format=auto,format=yuv420p`;
     }
