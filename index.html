@@ -278,7 +278,10 @@ z-index: 2;
     button:hover, .fileButton:hover { transform: translateY(-1px); border-color: #a7b0c0; }
     button.primary { background: var(--accent); color: white; border-color: var(--accent); }
     button.green { background: var(--accent2); color: white; border-color: var(--accent2); }
+    .fileButton.green { background: var(--accent2); color: white; border-color: var(--accent2); }
+    button.yellow { background: #facc15; color: #422006; border-color: #eab308; }
     button.danger { color: #991b1b; border-color: #fecaca; background: #fff7f7; }
+    button.dangerStrong { background: #dc2626; color: white; border-color: #dc2626; }
     button:disabled { opacity: .46; cursor: not-allowed; transform: none; }
     input[type=file] { display: none; }
     .renderActions {
@@ -554,7 +557,7 @@ z-index: 2;
       font-size: 12px;
       background: #f8fafc;
     }
-    .ratioButtons button.active, #pipToggle.active, #pipRoundedToggle.active, #pipEffectsToggle.active, #cropBoundsToggle.active, #advancedCropToggle.active, #renderGuidesToggle.active {
+    .ratioButtons button.active, #pipToggle.active, #pipRoundedToggle.active, #pipEffectsToggle.active, #pipAdvancedCropToggle.active, #cropBoundsToggle.active, #advancedCropToggle.active, #renderGuidesToggle.active {
       background: #16a34a;
       border-color: #16a34a;
       color: white;
@@ -654,7 +657,7 @@ z-index: 2;
       pointer-events: none;
       z-index: 6;
       padding: 2px;
-      background: linear-gradient(to bottom, rgba(56, 189, 248, .95), rgba(56, 189, 248, 0) 82%);
+      background: linear-gradient(to bottom, rgba(28, 157, 255, .95), rgba(28, 157, 255, 0) 82%);
       -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
       -webkit-mask-composite: xor;
       mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -798,6 +801,9 @@ z-index: 2;
       border-radius: 16px;
       font-size: 18px;
       letter-spacing: .04em;
+      background: var(--accent2);
+      border-color: var(--accent2);
+      color: white;
       box-shadow: 0 12px 28px rgba(22, 163, 74, .18);
     }
     .modalOverlay {
@@ -935,8 +941,8 @@ z-index: 2;
           <label>Padding around speech seconds</label>
           <input id="padding" title="Keep this much audio around speech before and after cuts." type="number" min="0" max="2" step="0.02" value="0.06" />
           <button id="detectBtn" class="primary" style="width:100%; margin-top:12px;" title="Scan the audio and mark silent sections red.">Analyze silence</button>
-          <button id="applySilenceBtn" class="green" style="width:100%; margin-top:8px;" title="Remove marked silence and turn the result into one editable clip." disabled>Apply jump cuts as one clip</button>
-          <button id="skipSilenceBtn" style="width:100%; margin-top:8px;" title="Skip silence detection and continue with the whole video as one editable clip.">Skip silence removal</button>
+          <button id="applySilenceBtn" class="dangerStrong" style="width:100%; margin-top:8px;" title="Remove marked silence and turn the result into one editable clip." disabled>Apply jump cuts as one clip</button>
+          <button id="skipSilenceBtn" class="green" style="width:100%; margin-top:8px;" title="Skip silence detection and continue with the whole video as one editable clip.">Skip silence removal</button>
         </div>
 
         <div class="step" id="step2">
@@ -969,6 +975,7 @@ z-index: 2;
               <button id="pipFitH" type="button" title="Resize the PIP layer to fit the final frame height.">Fit to height</button>
               <button id="pipRoundedToggle" type="button" title="Enable or disable rounded PIP edges in preview and render.">Rounded edges: on</button>
               <button id="pipEffectsToggle" type="button" title="Enable or disable the PIP shadow and blue gradient outline.">Effects</button>
+              <button id="pipAdvancedCropToggle" type="button" title="Show precise PIP source and placement sliders.">Advanced crop</button>
             </div>
             <label>PIP Source crop preset</label>
             <div class="ratioButtons">
@@ -992,7 +999,7 @@ z-index: 2;
           </div>
         </div>
 
-        <button id="openRenderModalBtn" class="renderLaunchBtn green" type="button" title="Open render settings">RENDER</button>
+        <button id="openRenderModalBtn" class="renderLaunchBtn" type="button" title="Open render settings">RENDER</button>
         <div class="status hidden" id="status">Open a video to begin.</div>
       </aside>
     </div>
@@ -1072,8 +1079,8 @@ z-index: 2;
 </div>
           <div class="renderActions">
             <button id="copyHeaderBtn" class="primary" disabled title="Generate and copy the desktop FFmpeg command.">Copy FFmpeg command</button>
-            <button id="renderBrowserBtn" class="green" disabled title="Render directly in this browser using multithreaded FFmpeg WebAssembly. Requires COOP/COEP headers.">Render in browser</button>
-            <a id="downloadRenderLink" class="fileButton hidden" download="edited-video.mp4">Download render</a>
+            <button id="renderBrowserBtn" class="yellow" disabled title="Render directly in this browser using multithreaded FFmpeg WebAssembly. Requires COOP/COEP headers.">Render in browser</button>
+            <a id="downloadRenderLink" class="fileButton green hidden" download="edited-video.mp4">Download render</a>
           </div>
       </div>
     </div>
@@ -1134,6 +1141,7 @@ z-index: 2;
       pipEditMode: false,
       allowOutOfBoundsCrop: false,
       advancedCropOpen: false,
+      pipAdvancedCropOpen: false,
       renderGuidesOn: true,
       customResOpen: false,
       timelineZoom: 1,
@@ -2173,11 +2181,14 @@ z-index: 2;
     }
 
     function updateAdvancedCropUi() {
-      const open = !!state.advancedCropOpen;
-      $('mainAdvancedCrop').classList.toggle('open', open);
-      $('pipAdvancedCrop').classList.toggle('open', open);
-      $('advancedCropToggle').classList.toggle('active', open);
-      $('advancedCropToggle').textContent = open ? 'Advanced crop: on' : 'Advanced crop';
+      const mainOpen = !!state.advancedCropOpen;
+      const pipOpen = !!state.pipAdvancedCropOpen;
+      $('mainAdvancedCrop').classList.toggle('open', mainOpen);
+      $('pipAdvancedCrop').classList.toggle('open', pipOpen);
+      $('advancedCropToggle').classList.toggle('active', mainOpen);
+      $('advancedCropToggle').textContent = mainOpen ? 'Advanced crop: on' : 'Advanced crop';
+      $('pipAdvancedCropToggle').classList.toggle('active', pipOpen);
+      $('pipAdvancedCropToggle').textContent = pipOpen ? 'Advanced crop: on' : 'Advanced crop';
     }
 
     function updateCropSliderLimits() {
@@ -2935,6 +2946,11 @@ z-index: 2;
       updateAdvancedCropUi();
       log(state.advancedCropOpen ? 'Advanced crop sliders shown.' : 'Advanced crop sliders hidden.');
     });
+    $('pipAdvancedCropToggle').addEventListener('click', () => {
+      state.pipAdvancedCropOpen = !state.pipAdvancedCropOpen;
+      updateAdvancedCropUi();
+      log(state.pipAdvancedCropOpen ? 'PIP advanced crop sliders shown.' : 'PIP advanced crop sliders hidden.');
+    });
 
     $('cropBoundsToggle').addEventListener('click', () => {
       state.allowOutOfBoundsCrop = !state.allowOutOfBoundsCrop;
@@ -3189,58 +3205,101 @@ z-index: 2;
       return `color=c=white:s=${maskW}x${maskH},format=gray,geq=lum_expr='${mask}',scale=${width}:${height}:flags=lanczos,format=gray`;
     }
 
-    function roundedRectInsideExpr(x, y, width, height, radius) {
-      const right = x + width;
-      const bottom = y + height;
-      const leftCenter = x + radius;
-      const rightCenter = right - radius - 1;
-      const topCenter = y + radius;
-      const bottomCenter = bottom - radius - 1;
-      const r2 = radius * radius;
-      const bodyX = `gte(X\\,${leftCenter})*lt(X\\,${rightCenter + 1})*gte(Y\\,${y})*lt(Y\\,${bottom})`;
-      const bodyY = `gte(X\\,${x})*lt(X\\,${right})*gte(Y\\,${topCenter})*lt(Y\\,${bottomCenter + 1})`;
-      const tl = `lte((X-${leftCenter})*(X-${leftCenter})+(Y-${topCenter})*(Y-${topCenter})\\,${r2})`;
-      const tr = `lte((X-${rightCenter})*(X-${rightCenter})+(Y-${topCenter})*(Y-${topCenter})\\,${r2})`;
-      const bl = `lte((X-${leftCenter})*(X-${leftCenter})+(Y-${bottomCenter})*(Y-${bottomCenter})\\,${r2})`;
-      const br = `lte((X-${rightCenter})*(X-${rightCenter})+(Y-${bottomCenter})*(Y-${bottomCenter})\\,${r2})`;
-      return `gt(${bodyX}+${bodyY}+${tl}+${tr}+${bl}+${br}\\,0)`;
+    function pipEffectsMetrics(frameW, frameH) {
+      const effectBase = Math.min(frameW, frameH);
+      const outline = 2;
+      const shadowX = Math.max(2, Math.round(effectBase * 0.012));
+      const shadowY = Math.max(3, Math.round(effectBase * 0.018));
+      const blur = Math.max(3, Math.round(effectBase * 0.018));
+      const pad = Math.max(10, outline + blur * 3 + Math.max(shadowX, shadowY));
+      return {
+        outline,
+        shadowX,
+        shadowY,
+        blur,
+        pad,
+        effectW: frameW + pad * 2,
+        effectH: frameH + pad * 2,
+      };
     }
 
-    function pipGradientOutlineMaskFilter(width, height, pad, outline, rounded) {
-      const scale = 4;
-      const maskW = width * scale;
-      const maskH = height * scale;
-      const maskPad = pad * scale;
-      const maskOutline = outline * scale;
-      const pipW = (width - pad * 2) * scale;
-      const pipH = (height - pad * 2) * scale;
-      const outerX = maskPad - maskOutline;
-      const outerY = maskPad - maskOutline;
-      const outerW = pipW + maskOutline * 2;
-      const outerH = pipH + maskOutline * 2;
-      const radius = rounded ? Math.max(2 * scale, Math.round(Math.min(pipW, pipH) * 0.04)) : 1;
-      const outer = roundedRectInsideExpr(outerX, outerY, outerW, outerH, radius + maskOutline);
-      const inner = roundedRectInsideExpr(maskPad, maskPad, pipW, pipH, radius);
-      const fade = `220*(1-Y/${Math.max(1, maskH - 1)})`;
-      const mask = `if(${outer}*eq(${inner}\\,0)\\,${fade}\\,0)`;
-      return `color=c=white:s=${maskW}x${maskH},format=gray,geq=lum_expr='${mask}',scale=${width}:${height}:flags=lanczos,format=gray`;
+    function roundedRectPath(ctx, x, y, w, h, r) {
+      const radius = Math.max(0, Math.min(r, w / 2, h / 2));
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + w - radius, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+      ctx.lineTo(x + w, y + h - radius);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+      ctx.lineTo(x + radius, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
     }
 
-    function pipShadowMaskFilter(width, height, pipW, pipH, pad, shadowX, shadowY, rounded, blur) {
-      const scale = 4;
-      const maskW = width * scale;
-      const maskH = height * scale;
-      const x = (pad + shadowX) * scale;
-      const y = (pad + shadowY) * scale;
-      const w = pipW * scale;
-      const h = pipH * scale;
-      const radius = rounded ? Math.max(2 * scale, Math.round(Math.min(w, h) * 0.04)) : 1;
-      const rect = roundedRectInsideExpr(x, y, w, h, radius);
-      const mask = `if(${rect}\\,255\\,0)`;
-      return `color=c=white:s=${maskW}x${maskH},format=gray,geq=lum_expr='${mask}',scale=${width}:${height}:flags=lanczos,format=gray,boxblur=${blur}:1`;
+    const pipEffectsPlateCache = new Map();
+
+    function pipEffectsPlateAsset(frameW, frameH, rounded) {
+      const metrics = pipEffectsMetrics(frameW, frameH);
+      const key = `${frameW}x${frameH}_${rounded ? 'r' : 's'}_${metrics.effectW}x${metrics.effectH}`;
+      const name = `__pip_effect_${key}.png`;
+      if (pipEffectsPlateCache.has(key)) return { ...metrics, name, dataUrl: pipEffectsPlateCache.get(key) };
+
+      const canvas = document.createElement('canvas');
+      canvas.width = metrics.effectW;
+      canvas.height = metrics.effectH;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const radius = rounded ? Math.max(2, Math.round(Math.min(frameW, frameH) * 0.04)) : 0;
+      const pipX = metrics.pad;
+      const pipY = metrics.pad;
+
+      ctx.save();
+      ctx.filter = `blur(${metrics.blur}px)`;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.32)';
+      ctx.beginPath();
+      roundedRectPath(ctx, pipX + metrics.shadowX, pipY + metrics.shadowY, frameW, frameH, radius);
+      ctx.fill();
+      ctx.restore();
+
+      const gradient = ctx.createLinearGradient(0, pipY, 0, pipY + frameH);
+      gradient.addColorStop(0, 'rgba(28, 157, 255, .95)');
+      gradient.addColorStop(0.82, 'rgba(28, 157, 255, 0)');
+      gradient.addColorStop(1, 'rgba(28, 157, 255, 0)');
+      ctx.strokeStyle = gradient;
+      ctx.lineWidth = metrics.outline;
+      ctx.beginPath();
+      roundedRectPath(ctx, pipX, pipY, frameW, frameH, radius);
+      ctx.stroke();
+
+      const dataUrl = canvas.toDataURL('image/png');
+      pipEffectsPlateCache.set(key, dataUrl);
+      return { ...metrics, name, dataUrl };
     }
 
-    function pipFilterComplex(clip) {
+    function dataUrlToBytes(dataUrl) {
+      const base64 = dataUrl.split(',')[1] || '';
+      const raw = atob(base64);
+      const bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+      return bytes;
+    }
+
+    function pipEffectsAssetForClip(clip) {
+      const pip = ensurePip(clip);
+      if (!pip.enabled || !pip.effects) return null;
+      clampPipFrameToMain(clip);
+
+      const { w } = renderSize();
+      const frameW = Math.max(2, Math.floor((w * pip.frame.w / 100) / 2) * 2);
+      const sourceAspect = sourceAspectRatio();
+      const pipAspect = Math.max(0.05, (pip.crop.w * sourceAspect) / Math.max(0.001, pip.crop.h));
+      const frameH = Math.max(2, Math.floor((frameW / pipAspect) / 2) * 2);
+      return pipEffectsPlateAsset(frameW, frameH, !!pip.rounded);
+    }
+
+    function pipFilterComplex(clip, options = {}) {
       const pip = ensurePip(clip);
       const { w, h } = renderSize();
       if (!pip.enabled) return null;
@@ -3254,7 +3313,7 @@ z-index: 2;
       const yPx = Math.max(0, Math.floor((h * pip.frame.y / 100) / 2) * 2);
 
       const pipCrop = cropExpr(pip.crop);
-      const pipHasAlpha = pip.rounded || pip.effects;
+      const pipHasAlpha = !!pip.rounded;
       const pipChain = [
         pipCrop,
         `scale=${frameW}:${frameH}:force_original_aspect_ratio=increase`,
@@ -3268,35 +3327,22 @@ z-index: 2;
         : `[0:v]${pipChain}[pip]`;
 
       if (pip.effects) {
-        const effectBase = Math.min(frameW, frameH);
-        const outline = 2;
-        const shadowX = Math.max(2, Math.round(effectBase * 0.012));
-        const shadowY = Math.max(3, Math.round(effectBase * 0.018));
-        const blur = Math.max(3, Math.round(effectBase * 0.018));
-        const pad = Math.max(10, outline + blur * 3 + Math.max(shadowX, shadowY));
-        const effectW = frameW + pad * 2;
-        const effectH = frameH + pad * 2;
-        const effectX = xPx - pad;
-        const effectY = yPx - pad;
+        const effect = pipEffectsPlateAsset(frameW, frameH, !!pip.rounded);
+        const effectLabel = options.effectsInputLabel || '1:v';
+        const effectX = xPx - effect.pad;
+        const effectY = yPx - effect.pad;
         return [
           `[0:v]${mainBaseFilter(clip, 'base')}`,
           pipSource,
-          pipShadowMaskFilter(effectW, effectH, frameW, frameH, pad, shadowX, shadowY, pip.rounded, blur) + '[shadowmask]',
-          `color=c=black:s=${effectW}x${effectH},format=rgba[shadowcolor]`,
-          `[shadowcolor][shadowmask]alphamerge,colorchannelmixer=aa=0.32[shadow]`,
-          `color=c=0x38bdf8:s=${effectW}x${effectH},format=rgba[outlinecolor]`,
-          pipGradientOutlineMaskFilter(effectW, effectH, pad, outline, pip.rounded) + '[outlinemask]',
-          `[outlinecolor][outlinemask]alphamerge[outline]`,
-          `[base][shadow]overlay=${effectX}:${effectY}:format=auto[baseShadow]`,
-          `[baseShadow][outline]overlay=${effectX}:${effectY}:format=auto[baseEffects]`,
-          `[baseEffects][pip]overlay=${xPx}:${yPx}:format=auto,format=yuv420p`
+          `[base][${effectLabel}]overlay=${effectX}:${effectY}:format=auto:shortest=1[baseEffects]`,
+          `[baseEffects][pip]overlay=${xPx}:${yPx}:format=auto:shortest=1,format=yuv420p`
         ].join(';');
       }
 
       if (pip.rounded) {
-        return `[0:v]${mainBaseFilter(clip, 'base')};${pipSource};[base][pip]overlay=${xPx}:${yPx}:format=auto,format=yuv420p`;
+        return `[0:v]${mainBaseFilter(clip, 'base')};${pipSource};[base][pip]overlay=${xPx}:${yPx}:format=auto:shortest=1,format=yuv420p`;
       }
-      return `[0:v]${mainBaseFilter(clip, 'base')};[0:v]${pipChain}[pip];[base][pip]overlay=${xPx}:${yPx}:format=auto,format=yuv420p`;
+      return `[0:v]${mainBaseFilter(clip, 'base')};[0:v]${pipChain}[pip];[base][pip]overlay=${xPx}:${yPx}:format=auto:shortest=1,format=yuv420p`;
     }
 
     function sourceAspectRatio() {
@@ -3676,7 +3722,8 @@ z-index: 2;
     }
 
     function ffmpegArgsForJob(job, inputName) {
-      const filterComplex = pipFilterComplex(job.clip);
+      const effectAsset = pipEffectsAssetForClip(job.clip);
+      const filterComplex = pipFilterComplex(job.clip, effectAsset ? { effectsInputLabel: '1:v' } : {});
       const duration = Math.max(MIN_RENDER_SEGMENT_SECONDS, job.duration || (job.seg.end - job.seg.start));
 
       // Use -t duration instead of -to end-time. Very short or rounded
@@ -3685,8 +3732,9 @@ z-index: 2;
       const args = [
         '-ss', String(sec(job.seg.start)),
         '-i', inputName,
-        '-t', String(sec(duration)),
       ];
+      if (effectAsset) args.push('-loop', '1', '-i', effectAsset.name);
+      args.push('-t', String(sec(duration)));
 
       if (filterComplex) args.push('-filter_complex', filterComplex);
       else args.push('-vf', outputFitFilter(job.clip));
@@ -3864,6 +3912,7 @@ z-index: 2;
         await ffmpeg.writeFile(inputName, await fetchFile(state.file));
         updateRenderBars(null, 5);
 
+        const writtenEffectAssets = new Set();
         const segmentSpan = 85 / jobs.length;
         for (let i = 0; i < jobs.length; i++) {
           const job = jobs[i];
@@ -3874,6 +3923,13 @@ z-index: 2;
           renderLog(`Rendering segment ${i + 1}/${jobs.length} (${fmt(job.seg.start)} + ${job.duration.toFixed(3)}s)...`);
           updateRenderBars(null, base);
           try { await ffmpeg.deleteFile(job.out); } catch {}
+          const effectAsset = pipEffectsAssetForClip(job.clip);
+          if (effectAsset && !writtenEffectAssets.has(effectAsset.name)) {
+            try { await ffmpeg.deleteFile(effectAsset.name); } catch {}
+            await ffmpeg.writeFile(effectAsset.name, dataUrlToBytes(effectAsset.dataUrl));
+            writtenEffectAssets.add(effectAsset.name);
+            renderLog(`Prepared static PIP effects plate ${effectAsset.name}.`);
+          }
           const args = ['-y', ...ffmpegArgsForJob(job, inputName)];
           renderLog(`WASM note: using ${$('x264Preset')?.value || 'fast'} preset with ${effectiveThreadModeLabel()}.`);
           renderLog(`FFmpeg args: ${args.join(' ')}`);
@@ -3919,6 +3975,9 @@ z-index: 2;
         for (const job of jobs) {
           try { await ffmpeg.deleteFile(job.out); } catch {}
         }
+        for (const name of writtenEffectAssets) {
+          try { await ffmpeg.deleteFile(name); } catch {}
+        }
         try { await ffmpeg.deleteFile('__jump_concat.txt'); } catch {}
       } catch (err) {
         console.error(err);
@@ -3944,6 +4003,7 @@ z-index: 2;
 
       const input = state.fileName;
       const parts = [];
+      const setupCommands = new Map();
       const commands = [];
       let i = 0;
 
@@ -3951,13 +4011,20 @@ z-index: 2;
         for (const seg of clip.segments) {
           const out = `__jump_part_${String(i).padStart(4, '0')}.mp4`;
           parts.push(out);
-          const filterComplex = pipFilterComplex(clip);
+          const effectAsset = pipEffectsAssetForClip(clip);
+          if (effectAsset && !setupCommands.has(effectAsset.name)) {
+            const base64 = effectAsset.dataUrl.split(',')[1] || '';
+            setupCommands.set(effectAsset.name, `printf %s ${shellQuote(base64)} | base64 -d > ${shellQuote(effectAsset.name)}`);
+          }
+          const filterComplex = pipFilterComplex(clip, effectAsset ? { effectsInputLabel: '1:v' } : {});
+          const duration = Math.max(MIN_RENDER_SEGMENT_SECONDS, Number(seg.end) - Number(seg.start));
           const base = [
             'ffmpeg -y',
             '-ss', sec(seg.start),
-            '-to', sec(seg.end),
             '-i', shellQuote(input),
           ];
+          if (effectAsset) base.push('-loop 1', '-i', shellQuote(effectAsset.name));
+          base.push('-t', sec(duration));
           if (filterComplex) base.push('-filter_complex', shellQuote(filterComplex));
           else base.push('-vf', shellQuote(outputFitFilter(clip)));
           base.push(
@@ -3974,9 +4041,10 @@ z-index: 2;
       }
 
       const listText = parts.map(p => `file '${p}'`).join('\n');
+      commands.unshift(...setupCommands.values());
       commands.push(`printf ${shellQuote(listText + '\n')} > __jump_concat.txt`);
       commands.push(`ffmpeg -y -f concat -safe 0 -i __jump_concat.txt -c copy ${shellQuote('edited-video.mp4')}`);
-      commands.push(`rm -f __jump_part_*.mp4 __jump_concat.txt`);
+      commands.push(`rm -f __jump_part_*.mp4 __jump_concat.txt __pip_effect_*.png`);
 
       commandBox.value = commands.join(' && \\\n');
       copyHeaderBtn.disabled = false;
@@ -4010,7 +4078,7 @@ z-index: 2;
         fileName: keepName,
         objectUrl: '', duration: 0, peaks: [], silent: [], keep: [], appliedSilence: false,
         clips: [], selectedClip: 0, cursor: 0, playingTimeline: false, suppressNativeTimeUpdate: false,
-        previewRunId: state.previewRunId + 1, activeTimelineItem: null, nextClipNumber: 1, pipEditMode: false, allowOutOfBoundsCrop: false, advancedCropOpen: false, renderGuidesOn: true, customResOpen: false, timelineZoom: 1, previewSpeed: 1
+        previewRunId: state.previewRunId + 1, activeTimelineItem: null, nextClipNumber: 1, pipEditMode: false, allowOutOfBoundsCrop: false, advancedCropOpen: false, pipAdvancedCropOpen: false, renderGuidesOn: true, customResOpen: false, timelineZoom: 1, previewSpeed: 1
       });
       $('timelineZoom').value = '0'; state.timelineZoom = 1; applyTimelineZoomWidth(); if (timelineWrap) timelineWrap.scrollLeft = 0; updateTimelineScrollHint(); $('previewSpeed').value = '1'; applyPreviewSpeed();
       if (clearFile) {
