@@ -3373,6 +3373,11 @@ touch-action: none;
         'set "SCRIPT=%~f0"',
         `powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:SCRIPT; $c=Get-Content -LiteralPath $p -Raw; $marker='${marker}'; $i=$c.LastIndexOf($marker); if ($i -lt 0) { throw 'Embedded PowerShell render script marker not found.' }; $s=$c.Substring($i + $marker.Length).TrimStart([char[]]([char]13,[char]10)); & ([scriptblock]::Create($s))"`,
         'set "ERR=%ERRORLEVEL%"',
+        'if not "%ERR%"=="0" (',
+        '  echo.',
+        '  echo Render failed. If FFmpeg is not installed or not in PATH, run:',
+        '  echo winget install ffmpeg',
+        ')',
         'echo.',
         'pause',
         'exit /b %ERR%',
@@ -3384,6 +3389,9 @@ touch-action: none;
     function windowsRenderPrelude() {
       return [
         '$ErrorActionPreference = "Stop"',
+        'Write-Host "Choose the original source video used in the browser editor."',
+        'Write-Host "The render will be written next to that video as edited-video.mp4."',
+        'Write-Host ""',
         'Add-Type -AssemblyName System.Windows.Forms',
         '$dialog = New-Object System.Windows.Forms.OpenFileDialog',
         '$dialog.Title = "Choose source video"',
