@@ -3359,7 +3359,7 @@ touch-action: none;
         '@echo off',
         'setlocal',
         'set "SCRIPT=%~f0"',
-        `powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:SCRIPT; $c=Get-Content -LiteralPath $p -Raw; $marker='${marker}'; $i=$c.LastIndexOf($marker); if ($i -lt 0) { throw 'Embedded PowerShell render script marker not found.' }; $s=$c.Substring($i + $marker.Length).TrimStart([char[]]([char]13,[char]10)); Invoke-Expression $s"`,
+        `powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:SCRIPT; $c=Get-Content -LiteralPath $p -Raw; $marker='${marker}'; $i=$c.LastIndexOf($marker); if ($i -lt 0) { throw 'Embedded PowerShell render script marker not found.' }; $s=$c.Substring($i + $marker.Length).TrimStart([char[]]([char]13,[char]10)); & ([scriptblock]::Create($s))"`,
         'set "ERR=%ERRORLEVEL%"',
         'echo.',
         'pause',
