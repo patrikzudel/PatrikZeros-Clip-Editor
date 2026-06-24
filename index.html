@@ -3287,7 +3287,12 @@ touch-action: none;
     async function copyFfmpegCommand(encoderMode) {
       const text = generateCommand(false, encoderMode);
       if (!text) {
-        log('Open a video and create at least one clip before copying the FFmpeg command.');
+        log('Open a video and create at least one clip before exporting the FFmpeg render command.');
+        return;
+      }
+      if (isWindowsPlatform()) {
+        downloadTextFile(text, renderScriptFileName(encoderMode, 'bat'), 'application/x-bat');
+        log(`${encoderMode === 'nvenc' ? 'NVENC' : 'CPU'} Windows render .bat downloaded. Double-click it and choose the source video.`);
         return;
       }
       await navigator.clipboard.writeText(text);
@@ -3297,12 +3302,41 @@ touch-action: none;
     copyCpuCommandBtn.addEventListener('click', () => copyFfmpegCommand('cpu'));
     copyNvencCommandBtn.addEventListener('click', () => copyFfmpegCommand('nvenc'));
 
+    if (isWindowsPlatform()) {
+      copyCpuCommandBtn.textContent = 'Download CPU .bat';
+      copyNvencCommandBtn.textContent = 'Download NVENC .bat';
+      copyCpuCommandBtn.title = 'Download a double-clickable Windows batch render script using CPU libx264 encoding.';
+      copyNvencCommandBtn.title = 'Download a double-clickable Windows batch render script using NVIDIA NVENC h264_nvenc encoding.';
+    }
+
+    function downloadTextFile(text, name, type = 'text/plain') {
+      const url = URL.createObjectURL(new Blob([text], { type }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function renderScriptFileName(encoderMode, ext) {
+      const base = (state.fileName || 'render').replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'render';
+      return `${base}-${encoderMode === 'nvenc' ? 'nvenc' : 'cpu'}-render.${ext}`;
+    }
+
     function powershellQuote(s) {
       return `'${String(s).replaceAll("'", "''")}'`;
     }
 
+    const POWERSHELL_INPUT_VIDEO_TOKEN = '__PATRIKZEROS_SELECTED_INPUT_VIDEO__';
+
+    function powershellArg(s) {
+      return s === POWERSHELL_INPUT_VIDEO_TOKEN ? '$inputVideo' : powershellQuote(s);
+    }
+
     function powershellFromArgs(args) {
-      return `& ${args.map(powershellQuote).join(' ')}; if ($LASTEXITCODE) { exit $LASTEXITCODE }`;
+      return `& ${args.map(powershellArg).join(' ')}; if ($LASTEXITCODE) { exit $LASTEXITCODE }`;
     }
 
     function powershellConcatFileCommand(parts) {
@@ -3314,18 +3348,35 @@ touch-action: none;
       return `Remove-Item -Path ${powershellQuote('__jump_part_*.mp4')}, ${powershellQuote('__jump_concat.txt')}, ${powershellQuote('__pip_effect_*.png')}, ${powershellQuote('__pip_mask_*.png')} -Force -ErrorAction SilentlyContinue`;
     }
 
-    function powershellEncodedCommand(script) {
-      const bytes = new Uint8Array(script.length * 2);
-      for (let i = 0; i < script.length; i++) {
-        const code = script.charCodeAt(i);
-        bytes[i * 2] = code & 255;
-        bytes[i * 2 + 1] = code >> 8;
-      }
-      let binary = '';
-      for (let i = 0; i < bytes.length; i += 0x8000) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      }
-      return `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${btoa(binary)}`;
+    function windowsBatchRenderScript(powerShellBody) {
+      const marker = '### POWERSHELL_RENDER_SCRIPT ###';
+      const bootstrap = [
+        '@echo off',
+        'setlocal',
+        'set "SCRIPT=%~f0"',
+        `powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:SCRIPT; $c=Get-Content -LiteralPath $p -Raw; $m=[string][char]13+[string][char]10+'${marker}'+[string][char]13+[string][char]10; $s=($c -split [regex]::Escape($m),2)[1]; Invoke-Expression $s"`,
+        'set "ERR=%ERRORLEVEL%"',
+        'echo.',
+        'pause',
+        'exit /b %ERR%',
+        marker,
+      ].join('\r\n');
+      return `${bootstrap}\r\n${powerShellBody.replace(/\n/g, '\r\n')}\r\n`;
+    }
+
+    function windowsRenderPrelude() {
+      return [
+        '$ErrorActionPreference = "Stop"',
+        'Add-Type -AssemblyName System.Windows.Forms',
+        '$dialog = New-Object System.Windows.Forms.OpenFileDialog',
+        '$dialog.Title = "Choose source video"',
+        '$dialog.Filter = "Video files|*.mp4;*.mov;*.mkv;*.webm;*.m4v|All files|*.*"',
+        'if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { exit 1 }',
+        '$inputVideo = $dialog.FileName',
+        '$workDir = Split-Path -LiteralPath $inputVideo -Parent',
+        'Set-Location -LiteralPath $workDir',
+        'Write-Host "Selected source video: $inputVideo"',
+      ].join('\n');
     }
 
     function shellQuote(s) {
@@ -3503,16 +3554,27 @@ touch-action: none;
       const name = `__pip_mask_${key}.png`;
       if (pipRoundedMaskCache.has(key)) return { name, dataUrl: pipRoundedMaskCache.get(key) };
 
+      const scale = 4;
+      const hiW = frameW * scale;
+      const hiH = frameH * scale;
+      const hiCanvas = document.createElement('canvas');
+      hiCanvas.width = hiW;
+      hiCanvas.height = hiH;
+      const hiCtx = hiCanvas.getContext('2d');
+      hiCtx.fillStyle = 'black';
+      hiCtx.fillRect(0, 0, hiW, hiH);
+      hiCtx.fillStyle = 'white';
+      hiCtx.beginPath();
+      roundedRectPath(hiCtx, 0, 0, hiW, hiH, Math.max(2 * scale, Math.round(Math.min(hiW, hiH) * 0.04)));
+      hiCtx.fill();
+
       const canvas = document.createElement('canvas');
       canvas.width = frameW;
       canvas.height = frameH;
       const ctx = canvas.getContext('2d');
-      ctx.fillStyle = 'black';
-      ctx.fillRect(0, 0, frameW, frameH);
-      ctx.fillStyle = 'white';
-      ctx.beginPath();
-      roundedRectPath(ctx, 0, 0, frameW, frameH, Math.max(2, Math.round(Math.min(frameW, frameH) * 0.04)));
-      ctx.fill();
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(hiCanvas, 0, 0, frameW, frameH);
 
       const dataUrl = canvas.toDataURL('image/png');
       pipRoundedMaskCache.set(key, dataUrl);
@@ -4322,11 +4384,11 @@ touch-action: none;
         return '';
       }
 
-      const input = state.fileName;
       const parts = [];
       const setupCommands = new Map();
       const commands = [];
       const windowsCommand = isWindowsPlatform();
+      const input = windowsCommand ? POWERSHELL_INPUT_VIDEO_TOKEN : state.fileName;
       const commandFromArgs = windowsCommand ? powershellFromArgs : shellFromArgs;
       let i = 0;
 
@@ -4395,7 +4457,7 @@ touch-action: none;
       commands.push(windowsCommand ? powershellCleanupCommand() : shellCleanupCommand());
 
       commandBox.value = windowsCommand
-        ? powershellEncodedCommand(commands.join('\n'))
+        ? windowsBatchRenderScript([windowsRenderPrelude(), ...commands].join('\n'))
         : commands.join(' && ');
       setCopyCommandButtonsDisabled(false);
       $('renderStats').textContent = `${parts.length} segment${parts.length === 1 ? '' : 's'}`;
