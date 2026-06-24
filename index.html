@@ -232,6 +232,37 @@ touch-action: none;
       flex-wrap: wrap;
       justify-content: flex-end;
     }
+    .waveformStatus {
+      min-width: 210px;
+      max-width: 360px;
+      padding: 7px 10px;
+      border: 1px solid #dbe4ef;
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #475569;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.2;
+      text-align: left;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .waveformStatus.busy {
+      color: #0f4f8f;
+      border-color: #bfdbfe;
+      background: #eff6ff;
+    }
+    .waveformStatus.done {
+      color: #166534;
+      border-color: #bbf7d0;
+      background: #f0fdf4;
+    }
+    .waveformStatus.failed {
+      color: #991b1b;
+      border-color: #fecaca;
+      background: #fef2f2;
+    }
     .zoomLabel {
       display: inline-flex;
       align-items: center;
@@ -888,6 +919,7 @@ touch-action: none;
           <div class="timelineTop">
             <strong id="timelineTitle">Timeline</strong>
             <div class="timelineTools">
+              <div id="waveformStatus" class="waveformStatus">Waveform: waiting</div>
               <label class="zoomLabel">Timeline zoom
                 <input id="timelineZoom" type="range" min="0" max="100" step="1" value="0" title="Zoom in for more precise cuts on long videos. The curve is gentle at the beginning and stronger near the end." />
                 <span id="timelineZoomVal">1×</span>
@@ -1117,6 +1149,7 @@ touch-action: none;
     const ctx = canvas.getContext('2d');
     const clipStrip = $('clipStrip');
     const statusBox = $('status');
+    const waveformStatus = $('waveformStatus');
 
     const state = {
       file: null,
@@ -1144,12 +1177,21 @@ touch-action: none;
       customResOpen: false,
       timelineZoom: 1,
       previewSpeed: 1,
+      waveformRunId: 0,
     };
 
     let browserFFmpeg = null;
     let browserFFmpegLoaded = false;
     let browserFFmpegCoreMode = null;
+    let waveformFFmpeg = null;
+    let waveformFFmpegLoadPromise = null;
+    let waveformFSType = null;
+    let waveformProgressHandler = null;
     const MIN_RENDER_SEGMENT_SECONDS = 0.08;
+    const MAX_DIRECT_AUDIO_DECODE_BYTES = 1900 * 1024 * 1024;
+    const WAVEFORM_BINS_PER_MINUTE = 600;
+    const MIN_WAVEFORM_BINS = 1600;
+    const MAX_WAVEFORM_BIN_MINUTES = 180;
 
     const fmt = (s) => {
       if (!Number.isFinite(s)) return '00:00';
@@ -1161,6 +1203,11 @@ touch-action: none;
     const sec = (s) => Number(Math.max(0, s).toFixed(3));
     const log = (msg) => { statusBox.textContent = msg; };
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    function setWaveformStatus(text, mode = '') {
+      if (!waveformStatus) return;
+      waveformStatus.textContent = text;
+      waveformStatus.className = `waveformStatus${mode ? ` ${mode}` : ''}`;
+    }
 
     fileInput.addEventListener('change', async () => {
       const file = fileInput.files?.[0];
@@ -1183,8 +1230,6 @@ touch-action: none;
       pipPlacementPipVideo.load();
       await new Promise(resolve => video.onloadedmetadata = resolve);
       state.duration = video.duration || 0;
-      log('Decoding audio and drawing waveform...');
-      await decodeWaveform(file);
       state.keep = [{ start: 0, end: state.duration }];
       state.clips = [{ id: crypto.randomUUID(), label: allocateClipLabel(), segments: [{ start: 0, end: state.duration }], crop: defaultCrop(), pip: defaultPip(), mainFrame: defaultMainFrame() }];
       state.cursor = 0;
@@ -1192,15 +1237,117 @@ touch-action: none;
       draw();
       renderClips();
       updateUi();
-      log('Video loaded. Click “Analyze silence” to mark silent sections red.');
+      const waveformRunId = ++state.waveformRunId;
+      setWaveformStatus('Waveform: starting...', 'busy');
+      log('Video loaded. Building waveform...');
+      try {
+        await decodeWaveform(file, waveformRunId);
+        if (waveformRunId !== state.waveformRunId) return;
+        draw();
+        setWaveformStatus(`Waveform: ready (${state.peaks.length} points)`, 'done');
+        log('Waveform ready. Click “Analyze silence” to mark silent sections red.');
+      } catch (err) {
+        if (waveformRunId !== state.waveformRunId) return;
+        console.error(err);
+        state.peaks = [];
+        draw();
+        setWaveformStatus('Waveform: failed', 'failed');
+        log('Video loaded, but waveform analysis failed. You can still cut manually or skip silence removal.');
+      }
     });
 
-    async function decodeWaveform(file) {
+    async function decodeWaveform(file, waveformRunId) {
       state.audioCtx = state.audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-      const buf = await file.arrayBuffer();
-      const audio = await state.audioCtx.decodeAudioData(buf.slice(0));
+      const audio = await decodeAudioForWaveform(file, waveformRunId);
+      if (waveformRunId !== state.waveformRunId) return;
+      state.peaks = peaksFromAudioBuffer(audio);
+    }
+
+    async function decodeAudioForWaveform(file, waveformRunId) {
+      if (file.size > MAX_DIRECT_AUDIO_DECODE_BYTES && file.type.startsWith('video/')) {
+        setWaveformStatus('Waveform: extracting audio...', 'busy');
+        return decodeAudioViaFfmpeg(file, waveformRunId);
+      }
+
+      try {
+        setWaveformStatus('Waveform: reading file...', 'busy');
+        const buf = await file.arrayBuffer();
+        if (waveformRunId !== state.waveformRunId) throw new Error('Waveform decode cancelled.');
+        setWaveformStatus('Waveform: decoding audio...', 'busy');
+        return await state.audioCtx.decodeAudioData(buf.slice(0));
+      } catch (err) {
+        if (!file.type.startsWith('video/')) throw err;
+        console.warn('Direct browser audio decode failed; retrying through ffmpeg.', err);
+        setWaveformStatus('Waveform: retrying with FFmpeg...', 'busy');
+        return decodeAudioViaFfmpeg(file, waveformRunId);
+      }
+    }
+
+    async function getWaveformFFmpeg(onStatus) {
+      waveformProgressHandler = onStatus;
+      if (!waveformFFmpegLoadPromise) {
+        const localURL = (path) => new URL(path, window.location.href).href;
+        const [{ FFmpeg, FFFSType }] = await Promise.all([
+          import(localURL('./ffmpeg/ffmpeg/index.js')),
+        ]);
+        waveformFFmpeg = new FFmpeg();
+        waveformFSType = FFFSType;
+        waveformFFmpeg.on('progress', ({ progress }) => {
+          if (!Number.isFinite(progress)) return;
+          const pct = Math.round(clamp(progress, 0, 1) * 100);
+          waveformProgressHandler?.(`Waveform: extracting audio ${pct}%`);
+        });
+        waveformFFmpegLoadPromise = waveformFFmpeg.load({
+          coreURL: localURL('./ffmpeg/core/ffmpeg-core.js'),
+          wasmURL: localURL('./ffmpeg/core/ffmpeg-core.wasm'),
+        });
+      }
+
+      onStatus?.('Waveform: loading FFmpeg...');
+      await waveformFFmpegLoadPromise;
+      return waveformFFmpeg;
+    }
+
+    async function extractWaveformAudio(file, waveformRunId) {
+      const ffmpeg = await getWaveformFFmpeg(message => setWaveformStatus(message, 'busy'));
+      if (waveformRunId !== state.waveformRunId) throw new Error('Waveform extraction cancelled.');
+
+      const mountPoint = '/waveform-input';
+      const outputPath = '/waveform-output.wav';
+      try { await ffmpeg.createDir(mountPoint); } catch {}
+      try { await ffmpeg.deleteFile(outputPath); } catch {}
+
+      await ffmpeg.mount(waveformFSType.WORKERFS, { files: [file] }, mountPoint);
+      try {
+        setWaveformStatus('Waveform: extracting WAV...', 'busy');
+        const inputPath = `${mountPoint}/${file.name}`;
+        const exitCode = await ffmpeg.exec(['-i', inputPath, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', outputPath]);
+        if (exitCode !== 0) throw new Error(`FFmpeg exited with code ${exitCode}`);
+        if (waveformRunId !== state.waveformRunId) throw new Error('Waveform extraction cancelled.');
+        setWaveformStatus('Waveform: reading extracted audio...', 'busy');
+        const data = await ffmpeg.readFile(outputPath);
+        return new Blob([data], { type: 'audio/wav' });
+      } finally {
+        try { await ffmpeg.unmount(mountPoint); } catch {}
+        try { await ffmpeg.deleteFile(outputPath); } catch {}
+      }
+    }
+
+    async function decodeAudioViaFfmpeg(file, waveformRunId) {
+      const wavBlob = await extractWaveformAudio(file, waveformRunId);
+      if (waveformRunId !== state.waveformRunId) throw new Error('Waveform decode cancelled.');
+      setWaveformStatus('Waveform: decoding extracted WAV...', 'busy');
+      const buf = await wavBlob.arrayBuffer();
+      return state.audioCtx.decodeAudioData(buf.slice(0));
+    }
+
+    function waveformBinCount(duration) {
+      const cappedMinutes = Math.min(MAX_WAVEFORM_BIN_MINUTES, Math.max(0, duration || 0) / 60);
+      return Math.max(MIN_WAVEFORM_BINS, Math.ceil(cappedMinutes * WAVEFORM_BINS_PER_MINUTE));
+    }
+
+    function peaksFromAudioBuffer(audio, bins = waveformBinCount(audio.duration)) {
       const ch = audio.getChannelData(0);
-      const bins = 1600;
       const samplesPerBin = Math.max(1, Math.floor(ch.length / bins));
       const peaks = [];
       for (let i = 0; i < bins; i++) {
@@ -1215,11 +1362,15 @@ touch-action: none;
         const rms = Math.sqrt(sum / Math.max(1, end - start));
         peaks.push({ rms, max, t0: i / bins * audio.duration, t1: (i + 1) / bins * audio.duration });
       }
-      state.peaks = peaks;
+      return peaks;
     }
 
     function detectSilence() {
-      if (!state.file || !state.peaks.length) return;
+      if (!state.file) return;
+      if (!state.peaks.length) {
+        log('Waveform is not ready yet. Wait for audio extraction/decoding to finish, or skip silence removal and cut manually.');
+        return;
+      }
       const thresholdDb = Number($('threshold').value);
       const threshold = Math.pow(10, thresholdDb / 20);
       const minDur = Number($('minSilence').value);
@@ -1684,12 +1835,11 @@ touch-action: none;
       ctx.fillStyle = '#f8fafc'; ctx.fillRect(0,0,cssW,cssH);
       const total = state.appliedSilence ? Math.max(0.001, timelineDuration()) : Math.max(0.001, state.duration);
       drawTicks(cssW, total);
-      if (!state.peaks.length) return;
 
-      if (!state.appliedSilence) {
+      if (state.peaks.length && !state.appliedSilence) {
         for (const r of state.silent) rectRange(r.start, r.end, total, cssW, cssH, 'rgba(239,68,68,.28)');
         drawWaveSource(0, state.duration, 0, cssW, mid, amp);
-      } else {
+      } else if (state.peaks.length) {
         let xCursor = 0;
         state.clips.forEach((clip, ci) => {
           const cd = clipDuration(clip);
@@ -4105,12 +4255,13 @@ touch-action: none;
       if (state.objectUrl) URL.revokeObjectURL(state.objectUrl);
       const keepFile = clearFile ? null : state.file;
       const keepName = clearFile ? 'input.mp4' : state.fileName;
+      const nextWaveformRunId = state.waveformRunId + 1;
       Object.assign(state, {
         file: keepFile,
         fileName: keepName,
         objectUrl: '', duration: 0, peaks: [], silent: [], keep: [], appliedSilence: false,
         clips: [], selectedClip: 0, cursor: 0, playingTimeline: false, suppressNativeTimeUpdate: false,
-        previewRunId: state.previewRunId + 1, activeTimelineItem: null, nextClipNumber: 1, pipEditMode: false, allowOutOfBoundsCrop: false, advancedCropOpen: false, pipAdvancedCropOpen: false, renderGuidesOn: true, customResOpen: false, timelineZoom: 1, previewSpeed: 1
+        previewRunId: state.previewRunId + 1, activeTimelineItem: null, nextClipNumber: 1, pipEditMode: false, allowOutOfBoundsCrop: false, advancedCropOpen: false, pipAdvancedCropOpen: false, renderGuidesOn: true, customResOpen: false, timelineZoom: 1, previewSpeed: 1, waveformRunId: nextWaveformRunId
       });
       $('timelineZoom').value = '0'; state.timelineZoom = 1; applyTimelineZoomWidth(); if (timelineWrap) timelineWrap.scrollLeft = 0; updateTimelineScrollHint(); $('previewSpeed').value = '1'; applyPreviewSpeed();
       if (clearFile) {
@@ -4123,6 +4274,7 @@ touch-action: none;
       }
       $('step1').className = 'step active'; $('step1').classList.remove('hidden'); $('step2').className = 'step'; $('step3').className = 'step'; closeRenderModal();
       $('silenceStats').textContent = 'waiting'; $('clipStats').textContent = '0 clips'; $('renderStats').textContent = 'idle';
+      setWaveformStatus('Waveform: waiting');
       $('applySilenceBtn').disabled = true; $('commandBox').value = ''; copyHeaderBtn.disabled = true; renderBrowserBtn.disabled = true; downloadRenderLink.classList.add('hidden'); downloadRenderLink.removeAttribute('href'); renderProgressPanel.classList.add('hidden'); resetRenderProgress('Waiting.');
         renderBrowserBtn.disabled = true;
       cropOverlay.style.display = 'none'; pipPreview.style.display = 'none'; resetViewerPadding(); clipStrip.innerHTML = ''; ctx.clearRect(0,0,canvas.width,canvas.height);
