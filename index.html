@@ -1819,6 +1819,9 @@ touch-action: none;
       const deviceDpr = window.devicePixelRatio || 1;
       const cssW = canvas.clientWidth || 1400;
       const cssH = 138;
+      const visibleX0 = Math.max(0, timelineWrap?.scrollLeft || 0);
+      const visibleX1 = Math.min(cssW, visibleX0 + (timelineWrap?.clientWidth || cssW));
+      const drawViewport = { x0: Math.max(0, visibleX0 - 80), x1: Math.min(cssW, visibleX1 + 80) };
 
       // Large zoom values can make the canvas wider than browser/GPU limits,
       // especially on high-DPI displays. Keep the CSS width large for scrolling,
@@ -1826,8 +1829,10 @@ touch-action: none;
       const maxBackingW = 16384;
       const maxBackingH = 4096;
       const scale = Math.max(0.1, Math.min(deviceDpr, maxBackingW / Math.max(1, cssW), maxBackingH / cssH));
-      canvas.width = Math.max(1, Math.floor(cssW * scale));
-      canvas.height = Math.max(1, Math.floor(cssH * scale));
+      const backingW = Math.max(1, Math.floor(cssW * scale));
+      const backingH = Math.max(1, Math.floor(cssH * scale));
+      if (canvas.width !== backingW) canvas.width = backingW;
+      if (canvas.height !== backingH) canvas.height = backingH;
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
       ctx.clearRect(0,0,cssW,cssH);
 
@@ -1838,20 +1843,23 @@ touch-action: none;
 
       if (state.peaks.length && !state.appliedSilence) {
         for (const r of state.silent) rectRange(r.start, r.end, total, cssW, cssH, 'rgba(239,68,68,.28)');
-        drawWaveSource(0, state.duration, 0, cssW, mid, amp);
+        drawWaveSource(0, state.duration, 0, cssW, mid, amp, drawViewport);
       } else if (state.peaks.length) {
         let xCursor = 0;
         state.clips.forEach((clip, ci) => {
           const cd = clipDuration(clip);
           const w = cssW * cd / total;
-          ctx.fillStyle = ci === state.selectedClip ? 'rgba(37,99,235,.08)' : 'rgba(22,163,74,.08)';
-          ctx.fillRect(xCursor, 24, w, cssH - 38);
-          ctx.strokeStyle = ci === state.selectedClip ? '#2563eb' : '#86efac';
-          ctx.strokeRect(xCursor + .5, 24.5, Math.max(0, w - 1), cssH - 39);
+          const clipVisible = xCursor <= drawViewport.x1 && xCursor + w >= drawViewport.x0;
+          if (clipVisible) {
+            ctx.fillStyle = ci === state.selectedClip ? 'rgba(37,99,235,.08)' : 'rgba(22,163,74,.08)';
+            ctx.fillRect(xCursor, 24, w, cssH - 38);
+            ctx.strokeStyle = ci === state.selectedClip ? '#2563eb' : '#86efac';
+            ctx.strokeRect(xCursor + .5, 24.5, Math.max(0, w - 1), cssH - 39);
+          }
           let localX = xCursor;
           for (const seg of clip.segments) {
             const sw = cssW * (seg.end - seg.start) / total;
-            drawWaveSource(seg.start, seg.end, localX, sw, mid, amp);
+            drawWaveSource(seg.start, seg.end, localX, sw, mid, amp, drawViewport);
             localX += sw;
           }
           xCursor += w;
@@ -1890,26 +1898,51 @@ touch-action: none;
       ctx.fillRect(x, 24, rw, h - 38);
     }
 
-    function drawWaveSource(start, end, x, width, mid, amp) {
-      const duration = Math.max(0.0001, end - start);
-      const visible = state.peaks.filter(p => p.t1 >= start && p.t0 <= end);
-      if (!visible.length || width <= 0) return;
+    function drawWaveSource(start, end, x, width, mid, amp, viewport = null) {
+      const segmentDuration = Math.max(0.0001, end - start);
+      const peakCount = state.peaks.length;
+      if (!peakCount || width <= 0 || !state.duration) return;
+
+      const viewX0 = viewport ? Math.max(x, viewport.x0) : x;
+      const viewX1 = viewport ? Math.min(x + width, viewport.x1) : x + width;
+      if (viewX1 <= viewX0) return;
+
+      const viewStart = start + ((viewX0 - x) / width) * segmentDuration;
+      const viewEnd = start + ((viewX1 - x) / width) * segmentDuration;
+      const visibleDuration = Math.max(0.0001, viewEnd - viewStart);
+      const visibleWidth = Math.max(1, viewX1 - viewX0);
+
+      const first = clamp(Math.floor(viewStart / state.duration * peakCount) - 1, 0, peakCount - 1);
+      const last = clamp(Math.ceil(viewEnd / state.duration * peakCount) + 1, first + 1, peakCount);
+      const visibleCount = last - first;
+      if (visibleCount <= 0) return;
 
       // Draw a continuous waveform envelope instead of isolated bars.
       // At high zoom the decoded peak bins are far apart; connecting the
       // envelope keeps the waveform readable instead of breaking into dots.
-      const points = visible.map(p => {
-        const t0 = clamp((p.t0 - start) / duration, 0, 1);
-        const t1 = clamp((p.t1 - start) / duration, 0, 1);
-        return {
-          x: x + ((t0 + t1) / 2) * width,
-          a: Math.max(1, p.max * amp * 2.7),
-        };
-      });
+      const targetPoints = Math.max(2, Math.min(visibleCount, Math.ceil(visibleWidth)));
+      const peaksPerPoint = Math.max(1, Math.ceil(visibleCount / targetPoints));
+      const points = [];
+      for (let i = first; i < last; i += peaksPerPoint) {
+        const groupEnd = Math.min(last, i + peaksPerPoint);
+        let max = 0;
+        let t0 = state.peaks[i].t0;
+        let t1 = state.peaks[groupEnd - 1].t1;
+        for (let j = i; j < groupEnd; j++) {
+          if (state.peaks[j].max > max) max = state.peaks[j].max;
+        }
+        const n0 = clamp((t0 - viewStart) / visibleDuration, 0, 1);
+        const n1 = clamp((t1 - viewStart) / visibleDuration, 0, 1);
+        points.push({
+          x: viewX0 + ((n0 + n1) / 2) * visibleWidth,
+          a: Math.max(1, max * amp * 2.7),
+        });
+      }
+      if (!points.length) return;
 
       // Add hard endpoints so long sparse sections still connect cleanly.
-      if (points[0].x > x) points.unshift({ x, a: points[0].a });
-      const right = x + width;
+      if (points[0].x > viewX0) points.unshift({ x: viewX0, a: points[0].a });
+      const right = viewX1;
       if (points[points.length - 1].x < right) points.push({ x: right, a: points[points.length - 1].a });
 
       ctx.fillStyle = 'rgba(29, 155, 240, .34)';
@@ -2130,7 +2163,16 @@ touch-action: none;
       setTimelineZoom(sliderToTimelineZoom($('timelineZoom').value), state.cursor);
     });
 
-    timelineWrap.addEventListener('scroll', updateTimelineScrollHint);
+    let timelineScrollDrawQueued = false;
+    timelineWrap.addEventListener('scroll', () => {
+      updateTimelineScrollHint();
+      if (timelineScrollDrawQueued) return;
+      timelineScrollDrawQueued = true;
+      requestAnimationFrame(() => {
+        timelineScrollDrawQueued = false;
+        draw();
+      });
+    });
     timelineWrap.addEventListener('wheel', (e) => {
       const isHorizontalScroll = Math.abs(e.deltaX) > Math.abs(e.deltaY) && !e.ctrlKey && !e.metaKey;
       if (isHorizontalScroll) return;
