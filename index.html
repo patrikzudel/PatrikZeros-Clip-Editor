@@ -3346,11 +3346,23 @@ touch-action: none;
 
     function powershellConcatFileCommand(parts) {
       const lines = parts.map(part => powershellQuote(`file '${part}'`)).join(', ');
-      return `$concat = @(${lines}); Set-Content -LiteralPath ${powershellQuote('__jump_concat.txt')} -Value $concat -Encoding ASCII`;
+      return `[System.IO.File]::WriteAllLines(${powershellQuote('__jump_concat.txt')}, [string[]]@(${lines}), [System.Text.Encoding]::ASCII)`;
     }
 
     function powershellCleanupCommand() {
-      return `Remove-Item -Path ${powershellQuote('__jump_part_*.mp4')}, ${powershellQuote('__jump_concat.txt')}, ${powershellQuote('__pip_effect_*.png')}, ${powershellQuote('__pip_mask_*.png')} -Force -ErrorAction SilentlyContinue`;
+      return [
+        '$cleanupPatterns = @(',
+        powershellQuote('__jump_part_*.mp4'),
+        powershellQuote('__jump_concat.txt'),
+        powershellQuote('__pip_effect_*.png'),
+        powershellQuote('__pip_mask_*.png'),
+        ')',
+        'foreach ($pattern in $cleanupPatterns) {',
+        '  foreach ($path in [System.IO.Directory]::GetFiles([System.IO.Directory]::GetCurrentDirectory(), $pattern)) {',
+        '    try { [System.IO.File]::Delete($path) } catch {}',
+        '  }',
+        '}',
+      ].join('\n');
     }
 
     function windowsBatchRenderScript(powerShellBody) {
@@ -3378,7 +3390,8 @@ touch-action: none;
         '$dialog.Filter = "Video files|*.mp4;*.mov;*.mkv;*.webm;*.m4v|All files|*.*"',
         'if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { exit 1 }',
         '$inputVideo = $dialog.FileName',
-        '$workDir = Split-Path -LiteralPath $inputVideo -Parent',
+        '$workDir = [System.IO.Path]::GetDirectoryName($inputVideo)',
+        '[System.IO.Directory]::SetCurrentDirectory($workDir)',
         'Set-Location -LiteralPath $workDir',
         'Write-Host "Selected source video: $inputVideo"',
       ].join('\n');
