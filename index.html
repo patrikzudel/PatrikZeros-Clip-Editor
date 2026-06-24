@@ -315,7 +315,7 @@ touch-action: none;
     input[type=file] { display: none; }
     .renderActions {
       display: grid;
-      grid-template-columns: 1fr;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
       margin-top: 12px;
       padding-top: 12px;
@@ -326,6 +326,9 @@ touch-action: none;
       text-align: center;
       justify-content: center;
       display: block;
+    }
+    #renderBrowserBtn, #downloadRenderLink {
+      grid-column: 1 / -1;
     }
     .hidden { display: none !important; }
 
@@ -1108,7 +1111,8 @@ touch-action: none;
             <div id="renderLog" class="renderLog">Waiting.</div>
 </div>
           <div class="renderActions">
-            <button id="copyHeaderBtn" class="primary" disabled title="Generate and copy the desktop FFmpeg command.">Copy FFmpeg command</button>
+            <button id="copyCpuCommandBtn" class="primary" disabled title="Generate and copy the desktop FFmpeg command using CPU libx264 encoding.">Copy CPU FFmpeg</button>
+            <button id="copyNvencCommandBtn" class="primary" disabled title="Generate and copy the desktop FFmpeg command using NVIDIA NVENC h264_nvenc encoding.">Copy NVENC FFmpeg</button>
             <button id="renderBrowserBtn" class="yellow" disabled title="Render directly in this browser using multithreaded FFmpeg WebAssembly. Requires COOP/COEP headers.">Render in browser</button>
             <a id="downloadRenderLink" class="fileButton green hidden" download="edited-video.mp4">Download render</a>
           </div>
@@ -1119,7 +1123,8 @@ touch-action: none;
     const $ = (id) => document.getElementById(id);
     const fileInput = $('fileInput');
     const openVideoOverlay = $('openVideoOverlay');
-    const copyHeaderBtn = $('copyHeaderBtn');
+    const copyCpuCommandBtn = $('copyCpuCommandBtn');
+    const copyNvencCommandBtn = $('copyNvencCommandBtn');
     const renderBrowserBtn = $('renderBrowserBtn');
     const downloadRenderLink = $('downloadRenderLink');
     const renderProgressPanel = $('renderProgressPanel');
@@ -3279,33 +3284,48 @@ touch-action: none;
 
     renderBrowserBtn.addEventListener('click', renderInBrowser);
 
-    copyHeaderBtn.addEventListener('click', async () => {
-      const text = generateCommand(false);
+    async function copyFfmpegCommand(encoderMode) {
+      const text = generateCommand(false, encoderMode);
       if (!text) {
         log('Open a video and create at least one clip before copying the FFmpeg command.');
         return;
       }
       await navigator.clipboard.writeText(text);
-      log('FFmpeg command generated and copied to clipboard.');
-    });
-
-    function cmdQuote(s) {
-      return `"${String(s).replaceAll('"', '\\"')}"`;
+      log(`${encoderMode === 'nvenc' ? 'NVENC' : 'CPU'} FFmpeg command generated and copied to clipboard.`);
     }
 
-    function cmdArg(s) {
-      const text = String(s);
-      if (/^[A-Za-z0-9_./:=+-]+$/.test(text)) return text;
-      return cmdQuote(text);
+    copyCpuCommandBtn.addEventListener('click', () => copyFfmpegCommand('cpu'));
+    copyNvencCommandBtn.addEventListener('click', () => copyFfmpegCommand('nvenc'));
+
+    function powershellQuote(s) {
+      return `'${String(s).replaceAll("'", "''")}'`;
     }
 
-    function cmdFromArgs(args) {
-      return args.map(cmdArg).join(' ');
+    function powershellFromArgs(args) {
+      return `& ${args.map(powershellQuote).join(' ')}; if ($LASTEXITCODE) { exit $LASTEXITCODE }`;
     }
 
-    function cmdConcatFileCommand(parts) {
-      const lines = parts.map(part => `echo file '${part}'`);
-      return `(${lines.join('&')}) > ${cmdQuote('__jump_concat.txt')}`;
+    function powershellConcatFileCommand(parts) {
+      const lines = parts.map(part => powershellQuote(`file '${part}'`)).join(', ');
+      return `$concat = @(${lines}); Set-Content -LiteralPath ${powershellQuote('__jump_concat.txt')} -Value $concat -Encoding ASCII`;
+    }
+
+    function powershellCleanupCommand() {
+      return `Remove-Item -Path ${powershellQuote('__jump_part_*.mp4')}, ${powershellQuote('__jump_concat.txt')}, ${powershellQuote('__pip_effect_*.png')}, ${powershellQuote('__pip_mask_*.png')} -Force -ErrorAction SilentlyContinue`;
+    }
+
+    function powershellEncodedCommand(script) {
+      const bytes = new Uint8Array(script.length * 2);
+      for (let i = 0; i < script.length; i++) {
+        const code = script.charCodeAt(i);
+        bytes[i * 2] = code & 255;
+        bytes[i * 2 + 1] = code >> 8;
+      }
+      let binary = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      }
+      return `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${btoa(binary)}`;
     }
 
     function shellQuote(s) {
@@ -3325,6 +3345,21 @@ touch-action: none;
     function shellConcatFileCommand(parts) {
       const lines = parts.map(part => shellQuote(`file '${part}'`)).join(' ');
       return `printf '%s\\n' ${lines} > ${shellQuote('__jump_concat.txt')}`;
+    }
+
+    function shellCleanupCommand() {
+      return [
+        'find', '.',
+        '-maxdepth', '1',
+        '-type', 'f',
+        '\\(',
+        '-name', shellQuote('__jump_part_*.mp4'),
+        '-o', '-name', shellQuote('__jump_concat.txt'),
+        '-o', '-name', shellQuote('__pip_effect_*.png'),
+        '-o', '-name', shellQuote('__pip_mask_*.png'),
+        '\\)',
+        '-delete'
+      ].join(' ');
     }
 
     function isWindowsPlatform() {
@@ -3416,24 +3451,6 @@ touch-action: none;
       return filters.join(',');
     }
 
-    function roundedPipMaskFilter(width, height) {
-      const scale = 4;
-      const maskW = width * scale;
-      const maskH = height * scale;
-      const radius = Math.max(2 * scale, Math.round(Math.min(maskW, maskH) * 0.04));
-      const rightCenter = Math.max(radius, maskW - radius - 1);
-      const bottomCenter = Math.max(radius, maskH - radius - 1);
-      const rightEdge = Math.max(0, maskW - radius);
-      const bottomEdge = Math.max(0, maskH - radius);
-      const radiusSquared = radius * radius;
-      const tl = `lte((X-${radius})*(X-${radius})+(Y-${radius})*(Y-${radius})\\,${radiusSquared})`;
-      const tr = `lte((X-${rightCenter})*(X-${rightCenter})+(Y-${radius})*(Y-${radius})\\,${radiusSquared})`;
-      const bl = `lte((X-${radius})*(X-${radius})+(Y-${bottomCenter})*(Y-${bottomCenter})\\,${radiusSquared})`;
-      const br = `lte((X-${rightCenter})*(X-${rightCenter})+(Y-${bottomCenter})*(Y-${bottomCenter})\\,${radiusSquared})`;
-      const mask = `if(lt(X\\,${radius})*lt(Y\\,${radius})\\,if(${tl}\\,255\\,0)\\,if(gte(X\\,${rightEdge})*lt(Y\\,${radius})\\,if(${tr}\\,255\\,0)\\,if(lt(X\\,${radius})*gte(Y\\,${bottomEdge})\\,if(${bl}\\,255\\,0)\\,if(gte(X\\,${rightEdge})*gte(Y\\,${bottomEdge})\\,if(${br}\\,255\\,0)\\,255))))`;
-      return `color=c=white:s=${maskW}x${maskH},format=gray,geq=lum_expr='${mask}',scale=${width}:${height}:flags=lanczos,format=gray`;
-    }
-
     function pipEffectsMetrics(frameW, frameH) {
       const effectBase = Math.min(frameW, frameH);
       const outline = 2;
@@ -3467,6 +3484,40 @@ touch-action: none;
     }
 
     const pipEffectsPlateCache = new Map();
+    const pipRoundedMaskCache = new Map();
+
+    function pipFrameRenderPixels(clip) {
+      const pip = ensurePip(clip);
+      const { w, h } = renderSize();
+      const frameW = Math.max(2, Math.floor((w * pip.frame.w / 100) / 2) * 2);
+      const sourceAspect = sourceAspectRatio();
+      const pipAspect = Math.max(0.05, (pip.crop.w * sourceAspect) / Math.max(0.001, pip.crop.h));
+      const frameH = Math.max(2, Math.floor((frameW / pipAspect) / 2) * 2);
+      const xPx = Math.max(0, Math.floor((w * pip.frame.x / 100) / 2) * 2);
+      const yPx = Math.max(0, Math.floor((h * pip.frame.y / 100) / 2) * 2);
+      return { frameW, frameH, xPx, yPx };
+    }
+
+    function pipRoundedMaskAsset(frameW, frameH) {
+      const key = `${frameW}x${frameH}`;
+      const name = `__pip_mask_${key}.png`;
+      if (pipRoundedMaskCache.has(key)) return { name, dataUrl: pipRoundedMaskCache.get(key) };
+
+      const canvas = document.createElement('canvas');
+      canvas.width = frameW;
+      canvas.height = frameH;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = 'black';
+      ctx.fillRect(0, 0, frameW, frameH);
+      ctx.fillStyle = 'white';
+      ctx.beginPath();
+      roundedRectPath(ctx, 0, 0, frameW, frameH, Math.max(2, Math.round(Math.min(frameW, frameH) * 0.04)));
+      ctx.fill();
+
+      const dataUrl = canvas.toDataURL('image/png');
+      pipRoundedMaskCache.set(key, dataUrl);
+      return { name, dataUrl };
+    }
 
     function pipEffectsPlateAsset(frameW, frameH, rounded) {
       const metrics = pipEffectsMetrics(frameW, frameH);
@@ -3520,26 +3571,25 @@ touch-action: none;
       if (!pip.enabled || !pip.effects) return null;
       clampPipFrameToMain(clip);
 
-      const { w } = renderSize();
-      const frameW = Math.max(2, Math.floor((w * pip.frame.w / 100) / 2) * 2);
-      const sourceAspect = sourceAspectRatio();
-      const pipAspect = Math.max(0.05, (pip.crop.w * sourceAspect) / Math.max(0.001, pip.crop.h));
-      const frameH = Math.max(2, Math.floor((frameW / pipAspect) / 2) * 2);
+      const { frameW, frameH } = pipFrameRenderPixels(clip);
       return pipEffectsPlateAsset(frameW, frameH, !!pip.rounded);
+    }
+
+    function pipRoundedMaskAssetForClip(clip) {
+      const pip = ensurePip(clip);
+      if (!pip.enabled || !pip.rounded) return null;
+      clampPipFrameToMain(clip);
+
+      const { frameW, frameH } = pipFrameRenderPixels(clip);
+      return pipRoundedMaskAsset(frameW, frameH);
     }
 
     function pipFilterComplex(clip, options = {}) {
       const pip = ensurePip(clip);
-      const { w, h } = renderSize();
       if (!pip.enabled) return null;
       clampPipFrameToMain(clip);
 
-      const frameW = Math.max(2, Math.floor((w * pip.frame.w / 100) / 2) * 2);
-      const sourceAspect = sourceAspectRatio();
-      const pipAspect = Math.max(0.05, (pip.crop.w * sourceAspect) / Math.max(0.001, pip.crop.h));
-      const frameH = Math.max(2, Math.floor((frameW / pipAspect) / 2) * 2);
-      const xPx = Math.max(0, Math.floor((w * pip.frame.x / 100) / 2) * 2);
-      const yPx = Math.max(0, Math.floor((h * pip.frame.y / 100) / 2) * 2);
+      const { frameW, frameH, xPx, yPx } = pipFrameRenderPixels(clip);
 
       const pipCrop = cropExpr(pip.crop);
       const pipHasAlpha = !!pip.rounded;
@@ -3552,7 +3602,7 @@ touch-action: none;
       ].filter(Boolean).join(',');
 
       const pipSource = pip.rounded
-        ? `[0:v]${pipChain}[pipraw];${roundedPipMaskFilter(frameW, frameH)}[pipmask];[pipraw][pipmask]alphamerge[pip]`
+        ? `[0:v]${pipChain}[pipraw];[${options.maskInputLabel || '1:v'}]format=gray[pipmask];[pipraw][pipmask]alphamerge[pip]`
         : `[0:v]${pipChain}[pip]`;
 
       if (pip.effects) {
@@ -3835,6 +3885,48 @@ touch-action: none;
       return ['-preset', preset, '-crf', String($('crfValue')?.value || 23)];
     }
 
+    function nvencPresetForX264Preset(preset) {
+      return ({
+        ultrafast: 'p1',
+        superfast: 'p2',
+        faster: 'p3',
+        fast: 'p4',
+        medium: 'p5',
+        slow: 'p6',
+      })[preset] || 'p4';
+    }
+
+    function desktopVideoEncodingArgs(encoderMode = 'cpu') {
+      const preset = $('x264Preset')?.value || 'fast';
+      const rateMode = $('rateMode')?.value || 'crf';
+      if (encoderMode === 'nvenc') {
+        const args = ['-c:v', 'h264_nvenc', '-preset', nvencPresetForX264Preset(preset)];
+        if (rateMode === 'bitrate') {
+          const kbps = selectedVideoKbps();
+          args.push(
+            '-rc:v', 'cbr',
+            '-b:v', `${kbps}k`,
+            '-maxrate:v', `${kbps}k`,
+            '-bufsize:v', `${Math.max(600, kbps * 2)}k`
+          );
+        } else {
+          args.push(
+            '-rc:v', 'vbr',
+            '-cq:v', String($('crfValue')?.value || 23),
+            '-b:v', '0'
+          );
+        }
+        return args;
+      }
+
+      return ['-c:v', 'libx264', ...renderEncodingArgs()];
+    }
+
+    function setCopyCommandButtonsDisabled(disabled) {
+      copyCpuCommandBtn.disabled = disabled;
+      copyNvencCommandBtn.disabled = disabled;
+    }
+
     function isFirefoxBrowser() {
       return typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent || '');
     }
@@ -3935,7 +4027,12 @@ touch-action: none;
 
     function ffmpegArgsForJob(job, inputName) {
       const effectAsset = pipEffectsAssetForClip(job.clip);
-      const filterComplex = pipFilterComplex(job.clip, effectAsset ? { effectsInputLabel: '1:v' } : {});
+      const maskAsset = pipRoundedMaskAssetForClip(job.clip);
+      let extraInputIndex = 1;
+      const filterOptions = {};
+      if (maskAsset) filterOptions.maskInputLabel = `${extraInputIndex++}:v`;
+      if (effectAsset) filterOptions.effectsInputLabel = `${extraInputIndex++}:v`;
+      const filterComplex = pipFilterComplex(job.clip, filterOptions);
       const duration = Math.max(MIN_RENDER_SEGMENT_SECONDS, job.duration || (job.seg.end - job.seg.start));
 
       // Use -t duration instead of -to end-time. Very short or rounded
@@ -3945,6 +4042,7 @@ touch-action: none;
         '-ss', String(sec(job.seg.start)),
         '-i', inputName,
       ];
+      if (maskAsset) args.push('-loop', '1', '-i', maskAsset.name);
       if (effectAsset) args.push('-loop', '1', '-i', effectAsset.name);
       args.push('-t', String(sec(duration)));
 
@@ -4106,7 +4204,7 @@ touch-action: none;
 
       const previousText = renderBrowserBtn.textContent;
       renderBrowserBtn.disabled = true;
-      copyHeaderBtn.disabled = true;
+      setCopyCommandButtonsDisabled(true);
       downloadRenderLink.classList.add('hidden');
       downloadRenderLink.removeAttribute('href');
       resetRenderProgress('Preparing browser render...');
@@ -4125,6 +4223,7 @@ touch-action: none;
         updateRenderBars(null, 5);
 
         const writtenEffectAssets = new Set();
+        const writtenMaskAssets = new Set();
         const segmentSpan = 85 / jobs.length;
         for (let i = 0; i < jobs.length; i++) {
           const job = jobs[i];
@@ -4135,6 +4234,13 @@ touch-action: none;
           renderLog(`Rendering segment ${i + 1}/${jobs.length} (${fmt(job.seg.start)} + ${job.duration.toFixed(3)}s)...`);
           updateRenderBars(null, base);
           try { await ffmpeg.deleteFile(job.out); } catch {}
+          const maskAsset = pipRoundedMaskAssetForClip(job.clip);
+          if (maskAsset && !writtenMaskAssets.has(maskAsset.name)) {
+            try { await ffmpeg.deleteFile(maskAsset.name); } catch {}
+            await ffmpeg.writeFile(maskAsset.name, dataUrlToBytes(maskAsset.dataUrl));
+            writtenMaskAssets.add(maskAsset.name);
+            renderLog(`Prepared static PIP rounded mask ${maskAsset.name}.`);
+          }
           const effectAsset = pipEffectsAssetForClip(job.clip);
           if (effectAsset && !writtenEffectAssets.has(effectAsset.name)) {
             try { await ffmpeg.deleteFile(effectAsset.name); } catch {}
@@ -4190,6 +4296,9 @@ touch-action: none;
         for (const name of writtenEffectAssets) {
           try { await ffmpeg.deleteFile(name); } catch {}
         }
+        for (const name of writtenMaskAssets) {
+          try { await ffmpeg.deleteFile(name); } catch {}
+        }
         try { await ffmpeg.deleteFile('__jump_concat.txt'); } catch {}
       } catch (err) {
         console.error(err);
@@ -4199,17 +4308,17 @@ touch-action: none;
         log(`Multicore browser render failed: ${err?.message || err}. If this persists, use the copied FFmpeg command. Multicore browser FFmpeg is failing during local worker/core initialization.`);
       } finally {
         renderBrowserBtn.disabled = !state.file || !state.clips.length;
-        copyHeaderBtn.disabled = !state.file || !state.clips.length;
+        setCopyCommandButtonsDisabled(!state.file || !state.clips.length);
       }
     }
 
 
-    function generateCommand(showLog = true) {
+    function generateCommand(showLog = true, encoderMode = 'cpu') {
       const commandBox = $('commandBox');
       if (!state.file || !state.clips.length) {
         commandBox.value = '';
-        copyHeaderBtn.disabled = true;
-      renderBrowserBtn.disabled = true;
+        setCopyCommandButtonsDisabled(true);
+        renderBrowserBtn.disabled = true;
         return '';
       }
 
@@ -4218,30 +4327,49 @@ touch-action: none;
       const setupCommands = new Map();
       const commands = [];
       const windowsCommand = isWindowsPlatform();
-      const commandFromArgs = windowsCommand ? cmdFromArgs : shellFromArgs;
+      const commandFromArgs = windowsCommand ? powershellFromArgs : shellFromArgs;
       let i = 0;
 
       for (const clip of state.clips) {
         for (const seg of clip.segments) {
           const out = `__jump_part_${String(i).padStart(4, '0')}.mp4`;
           parts.push(out);
+          const maskAsset = pipRoundedMaskAssetForClip(clip);
+          if (maskAsset && !setupCommands.has(maskAsset.name)) {
+            const base64 = maskAsset.dataUrl.split(',')[1] || '';
+            if (windowsCommand) {
+              setupCommands.set(
+                maskAsset.name,
+                `[IO.File]::WriteAllBytes(${powershellQuote(maskAsset.name)}, [Convert]::FromBase64String(${powershellQuote(base64)}))`
+              );
+            } else {
+              setupCommands.set(maskAsset.name, `printf %s ${shellQuote(base64)} | base64 -d > ${shellQuote(maskAsset.name)}`);
+            }
+          }
           const effectAsset = pipEffectsAssetForClip(clip);
           if (effectAsset && !setupCommands.has(effectAsset.name)) {
             const base64 = effectAsset.dataUrl.split(',')[1] || '';
             if (windowsCommand) {
-              const ps = `[IO.File]::WriteAllBytes('${effectAsset.name}', [Convert]::FromBase64String('${base64}'))`;
-              setupCommands.set(effectAsset.name, cmdFromArgs(['powershell', '-NoProfile', '-Command', ps]));
+              setupCommands.set(
+                effectAsset.name,
+                `[IO.File]::WriteAllBytes(${powershellQuote(effectAsset.name)}, [Convert]::FromBase64String(${powershellQuote(base64)}))`
+              );
             } else {
               setupCommands.set(effectAsset.name, `printf %s ${shellQuote(base64)} | base64 -d > ${shellQuote(effectAsset.name)}`);
             }
           }
-          const filterComplex = pipFilterComplex(clip, effectAsset ? { effectsInputLabel: '1:v' } : {});
+          let extraInputIndex = 1;
+          const filterOptions = {};
+          if (maskAsset) filterOptions.maskInputLabel = `${extraInputIndex++}:v`;
+          if (effectAsset) filterOptions.effectsInputLabel = `${extraInputIndex++}:v`;
+          const filterComplex = pipFilterComplex(clip, filterOptions);
           const duration = Math.max(MIN_RENDER_SEGMENT_SECONDS, Number(seg.end) - Number(seg.start));
           const args = [
             'ffmpeg', '-y',
             '-ss', sec(seg.start),
             '-i', input,
           ];
+          if (maskAsset) args.push('-loop', '1', '-i', maskAsset.name);
           if (effectAsset) args.push('-loop', '1', '-i', effectAsset.name);
           args.push('-t', sec(duration));
           if (filterComplex) args.push('-filter_complex', filterComplex);
@@ -4250,9 +4378,7 @@ touch-action: none;
             '-af', 'aresample=async=1:first_pts=0',
             '-reset_timestamps', '1',
             '-avoid_negative_ts', 'make_zero',
-            '-c:v', 'libx264',
-            ...browserThreadArgs(),
-            ...renderEncodingArgs(),
+            ...desktopVideoEncodingArgs(encoderMode),
             '-pix_fmt', 'yuv420p',
             '-c:a', 'aac',
             '-b:a', '160k',
@@ -4264,16 +4390,16 @@ touch-action: none;
       }
 
       commands.unshift(...setupCommands.values());
-      commands.push(windowsCommand ? cmdConcatFileCommand(parts) : shellConcatFileCommand(parts));
+      commands.push(windowsCommand ? powershellConcatFileCommand(parts) : shellConcatFileCommand(parts));
       commands.push(commandFromArgs(['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', '__jump_concat.txt', '-c', 'copy', 'edited-video.mp4']));
-      commands.push(windowsCommand
-        ? 'del /q "__jump_part_*.mp4" "__jump_concat.txt" "__pip_effect_*.png" 2>nul'
-        : 'rm -f __jump_part_*.mp4 __jump_concat.txt __pip_effect_*.png');
+      commands.push(windowsCommand ? powershellCleanupCommand() : shellCleanupCommand());
 
-      commandBox.value = commands.join(' && ');
-      copyHeaderBtn.disabled = false;
+      commandBox.value = windowsCommand
+        ? powershellEncodedCommand(commands.join('\n'))
+        : commands.join(' && ');
+      setCopyCommandButtonsDisabled(false);
       $('renderStats').textContent = `${parts.length} segment${parts.length === 1 ? '' : 's'}`;
-      if (showLog) log('Command generated and ready to copy.');
+      if (showLog) log(`${encoderMode === 'nvenc' ? 'NVENC' : 'CPU'} command generated and ready to copy.`);
       return commandBox.value;
     }
 
@@ -4281,7 +4407,7 @@ touch-action: none;
       const total = state.appliedSilence ? timelineDuration() : state.duration;
       $('timeReadout').textContent = `${fmt(state.cursor)} / ${fmt(total)}`;
       $('timelineTitle').textContent = state.appliedSilence ? 'Step 2 timeline — silences removed, clips editable' : 'Step 1 timeline — red areas are detected silence';
-      copyHeaderBtn.disabled = !state.file || !state.clips.length;
+      setCopyCommandButtonsDisabled(!state.file || !state.clips.length);
       renderBrowserBtn.disabled = !state.file || !state.clips.length;
       loadCropSliders();
       loadPipSliders();
@@ -4317,7 +4443,7 @@ touch-action: none;
       $('step1').className = 'step active'; $('step1').classList.remove('hidden'); $('step2').className = 'step'; $('step3').className = 'step'; closeRenderModal();
       $('silenceStats').textContent = 'waiting'; $('clipStats').textContent = '0 clips'; $('renderStats').textContent = 'idle';
       setWaveformStatus('Waveform: waiting');
-      $('applySilenceBtn').disabled = true; $('commandBox').value = ''; copyHeaderBtn.disabled = true; renderBrowserBtn.disabled = true; downloadRenderLink.classList.add('hidden'); downloadRenderLink.removeAttribute('href'); renderProgressPanel.classList.add('hidden'); resetRenderProgress('Waiting.');
+      $('applySilenceBtn').disabled = true; $('commandBox').value = ''; setCopyCommandButtonsDisabled(true); renderBrowserBtn.disabled = true; downloadRenderLink.classList.add('hidden'); downloadRenderLink.removeAttribute('href'); renderProgressPanel.classList.add('hidden'); resetRenderProgress('Waiting.');
         renderBrowserBtn.disabled = true;
       cropOverlay.style.display = 'none'; pipPreview.style.display = 'none'; resetViewerPadding(); clipStrip.innerHTML = ''; ctx.clearRect(0,0,canvas.width,canvas.height);
       log(clearFile ? 'Open a video to begin.' : 'Resetting...');
