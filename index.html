@@ -3439,6 +3439,17 @@ touch-action: none;
       ].join(' ');
     }
 
+    function shellInputCheckCommand(inputName) {
+      return [
+        `if [ ! -f ${shellQuote(inputName)} ]; then`,
+        `  printf '%s\\n' ${shellQuote(`Source video not found: ${inputName}`)} >&2`,
+        `  printf '%s\\n' ${shellQuote('This Linux render script expects the source video to be in the same folder as the script.')} >&2`,
+        `  printf '%s\\n' ${shellQuote('Move this .sh file next to the source video, or download it into that folder, then run it again.')} >&2`,
+        '  exit 1',
+        'fi',
+      ].join('\n');
+    }
+
     function linuxRenderPrelude() {
       return [
         '#!/usr/bin/env bash',
@@ -4431,6 +4442,7 @@ touch-action: none;
       const windowsCommand = isWindowsPlatform();
       const input = windowsCommand ? POWERSHELL_INPUT_VIDEO_TOKEN : state.fileName;
       const commandFromArgs = windowsCommand ? powershellFromArgs : shellFromArgs;
+      if (!windowsCommand) commands.push(shellInputCheckCommand(input));
       let i = 0;
 
       for (const clip of state.clips) {
